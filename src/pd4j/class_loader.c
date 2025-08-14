@@ -337,22 +337,27 @@ static bool pd4j_class_loader_read_inheritance(pd4j_class_loader *loader, pd4j_c
 		return false;
 	}
 	
+	if (idx > class->numConstants) {
+		strncpy(loader->err, "Malformed class file: This class is not a valid constant", 511);
+		loader->hasErr = true;
+		return false;
+	}
 	pd4j_class_constant *thisClass = &class->constantPool[idx - 1];
 	
 	if (thisClass->tag != pd4j_CONSTANT_CLASS) {
-		strncpy(loader->err, "Malformed class file: this class is not a class constant", 511);
+		strncpy(loader->err, "Malformed class file: This class is not a class constant", 511);
 		loader->hasErr = true;
 		return false;
 	}
 	
 	if (!pd4j_class_constant_utf8(class, thisClass->data.indices.a, &class->thisClass)) {
-		strncpy(loader->err, "Malformed class file: this class does not point to a UTF-8 constant", 511);
+		strncpy(loader->err, "Malformed class file: This class does not point to a UTF-8 constant", 511);
 		loader->hasErr = true;
 		return false;
 	}
 	
 	if ((class->accessFlags & pd4j_CLASS_ACC_MODULE) != 0 && strcmp((char *)(class->thisClass), "module-info") == 0) {
-		strncpy(loader->err, "Malformed class file: this class is a module", 511);
+		strncpy(loader->err, "Malformed class file: This class is a module", 511);
 		loader->hasErr = true;
 		return false;
 	}
@@ -370,15 +375,21 @@ static bool pd4j_class_loader_read_inheritance(pd4j_class_loader *loader, pd4j_c
 		class->superClass = NULL;
 	}
 	else {
+		if (idx > class->numConstants) {
+			strncpy(loader->err, "Malformed class file: Superclass is not a valid constant", 511);
+			loader->hasErr = true;
+			return false;
+		}
 		pd4j_class_constant *superClass = &class->constantPool[idx - 1];
+		
 		if (superClass->tag != pd4j_CONSTANT_CLASS) {
-			strncpy(loader->err, "Malformed class file: superclass is not a class constant", 511);
+			strncpy(loader->err, "Malformed class file: Superclass is not a class constant", 511);
 			loader->hasErr = true;
 			return false;
 		}
 		
 		if (!pd4j_class_constant_utf8(class, superClass->data.indices.a, &class->superClass)) {
-			strncpy(loader->err, "Malformed class file: superclass does not point to a UTF-8 constant", 511);
+			strncpy(loader->err, "Malformed class file: Superclass does not point to a UTF-8 constant", 511);
 			loader->hasErr = true;
 			return false;
 		}
@@ -402,7 +413,14 @@ static bool pd4j_class_loader_read_inheritance(pd4j_class_loader *loader, pd4j_c
 			return false;
 		}
 		
+		if (idx > class->numConstants) {
+			strncpy(loader->err, "Malformed class file: Superinterface is not a valid constant", 511);
+			loader->hasErr = true;
+			pd4j_free(class->superInterfaces, class->numSuperInterfaces * sizeof(pd4j_class_constant *));
+			return false;
+		}
 		superInterface = &class->constantPool[idx - 1];
+		
 		if (superInterface->tag != pd4j_CONSTANT_CLASS) {
 			strncpy(loader->err, "Malformed class file: Superinterface is not a class constant", 511);
 			loader->hasErr = true;
@@ -503,36 +521,61 @@ static bool pd4j_class_loader_read_fields(pd4j_class_loader *loader, pd4j_class 
 				return false;
 			}
 			
-			if (attr->dataLength > 0) {
-				attr->data = pd4j_malloc(attr->dataLength);
-				
-				if (attr->data == NULL) {
-					pd4j_class_destroy_fields(class, i + 1);
-					strncpy(loader->err, "Unable to allocate class file field attribute data: Out of memory", 511);
-					loader->hasErr = true;
-					return false;
-				}
-				
-				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
-					pd4j_class_destroy_fields(class, i + 1);
-					return false;
-				}
-				
-				if (strcmp((const char *)(attr->name), "ConstantValue") == 0) {
-					attr->parsedData.constantValue = *(uint16_t *)attr->data;
-				}
-				else if (strcmp((const char *)(attr->name), "Synthetic") == 0) {
-					field->synthetic = true;
-				}
-				else if (strcmp((const char *)(attr->name), "Signature") == 0) {
-					uint16_t *data16 = (uint16_t *)attr->data;
-			
-					if (!pd4j_class_constant_utf8(class, *data16, &field->signature)) {
-						strncpy(loader->err, "Malformed class file: Field signature does not point to a UTF-8 constant", 511);
+			if (strcmp((const char *)(attr->name), "ConstantValue") == 0) {
+				if (attr->dataLength > 0) {
+					attr->data = pd4j_malloc(attr->dataLength);
+					
+					if (attr->data == NULL) {
+						pd4j_class_destroy_fields(class, i + 1);
+						strncpy(loader->err, "Unable to allocate class file field attribute data: Out of memory", 511);
 						loader->hasErr = true;
+						return false;
+					}
+					
+					if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
 						pd4j_class_destroy_fields(class, i + 1);
 						return false;
 					}
+				}
+				
+				attr->parsedData.constantValue = *(uint16_t *)attr->data;
+			}
+			else if (strcmp((const char *)(attr->name), "Synthetic") == 0) {
+				field->synthetic = true;
+			}
+			else if (strcmp((const char *)(attr->name), "Signature") == 0) {
+				if (attr->dataLength > 0) {
+					attr->data = pd4j_malloc(attr->dataLength);
+				
+					if (attr->data == NULL) {
+						pd4j_class_destroy_fields(class, i + 1);
+						strncpy(loader->err, "Unable to allocate class file field attribute data: Out of memory", 511);
+						loader->hasErr = true;
+						return false;
+					}
+				
+					if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+						pd4j_class_destroy_fields(class, i + 1);
+						return false;
+					}
+				}
+				
+				uint16_t *data16 = (uint16_t *)attr->data;
+				idx = REVERSE16(*data16);
+		
+				if (!pd4j_class_constant_utf8(class, idx, &field->signature)) {
+					strncpy(loader->err, "Malformed class file: Field signature does not point to a UTF-8 constant", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_fields(class, i + 1);
+					return false;
+				}
+			}
+			else {
+				uint8_t data[attr->dataLength];
+				
+				if (pd4j_class_loader_read(loader, data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_fields(class, i + 1);
+					return false;
 				}
 			}
 		}
@@ -623,23 +666,23 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				return false;
 			}
 			
-			if (attr->dataLength > 0) {
-				attr->data = pd4j_malloc(attr->dataLength);
-				
-				if (attr->data == NULL) {
-					strncpy(loader->err, "Unable to allocate class file method attribute data: Out of memory", 511);
-					loader->hasErr = true;
-					pd4j_class_destroy_methods(class, i + 1);
-					return false;
-				}
-				
-				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
-					pd4j_class_destroy_methods(class, i + 1);
-					return false;
-				}
-			}
-			
 			if (strcmp((const char *)(attr->name), "Code") == 0) {
+				if (attr->dataLength > 0) {
+					attr->data = pd4j_malloc(attr->dataLength);
+					
+					if (attr->data == NULL) {
+						strncpy(loader->err, "Unable to allocate class file method attribute data: Out of memory", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+					
+					if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+				}
+				
 				uint16_t *data16 = (uint16_t *)attr->data;
 				
 				attr->parsedData.code.maxStack = REVERSE16(data16[0]);
@@ -663,17 +706,26 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				for (uint16_t k = 0; k < attr->parsedData.code.exceptionTableLength; k++) {
 					pd4j_class_exception_table_entry *entry = &attr->parsedData.code.exceptionTable[k];
 					
-					uint16_t tmp = *(++data16);
+					uint16_t tmp = *(data16++);
 					entry->startPc = &attr->parsedData.code.code[REVERSE16(tmp)];
 					
-					tmp = *(++data16);
+					tmp = *(data16++);
 					entry->endPc = &attr->parsedData.code.code[REVERSE16(tmp)];
 					
-					tmp = *(++data16);
+					tmp = *(data16++);
 					entry->handlerPc = &attr->parsedData.code.code[REVERSE16(tmp)];
 					
-					tmp = *(++data16);
-					pd4j_class_constant *catchType = &class->constantPool[REVERSE16(tmp) - 1];
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Method exception table catch type is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+					pd4j_class_constant *catchType = &class->constantPool[tmp - 1];
+					
 					if (catchType->tag != pd4j_CONSTANT_CLASS) {
 						strncpy(loader->err, "Malformed class file: Method exception table catch type is not a class constant", 511);
 						loader->hasErr = true;
@@ -689,9 +741,11 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 					}
 				}
 				
-				uint16_t numAttrs = *(++data16);
+				idx = *(data16++);
+				uint16_t numAttrs = REVERSE16(idx);
+				
 				for (uint16_t k = 0; k < numAttrs; k++) {
-					uint16_t tmp = *(++data16);
+					uint16_t tmp = *(data16++);
 					idx = REVERSE16(tmp);
 					uint8_t *attrName;
 					
@@ -703,11 +757,11 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 					}
 					
 					if (strcmp((const char *)attrName, "LineNumberTable") == 0) {
-						(void)(*(++data16));
+						data16 += 2;
 						
-						tmp = *(++data16);
+						tmp = *(data16++);
 						attr->parsedData.code.lineNumberTableLength = REVERSE16(tmp);
-						attr->parsedData.code.lineNumberTable = (pd4j_class_line_number_table_entry *)(++data16);
+						attr->parsedData.code.lineNumberTable = (pd4j_class_line_number_table_entry *)(data16++);
 						
 						for (uint16_t l = 0; l < attr->parsedData.code.lineNumberTableLength; l++) {
 							attr->parsedData.code.lineNumberTable[l].startPcIndex = REVERSE16(attr->parsedData.code.lineNumberTable[l].startPcIndex);
@@ -717,12 +771,38 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 						data16 += (attr->parsedData.code.lineNumberTableLength * sizeof(pd4j_class_line_number_table_entry)) >> 1;
 						break;
 					}
-					
-					data16++;
-					data16 = (uint16_t *)(((uint8_t *)data16) + *data16);
+					else {
+						tmp = *(data16++);
+						uint32_t attrLength = REVERSE16(tmp);
+						tmp = *(data16++);
+						attrLength = (attrLength << 16) | REVERSE16(tmp);
+						
+						uint8_t data[attrLength];
+						
+						if (pd4j_class_loader_read(loader, data, attrLength) < attrLength) {
+							pd4j_class_destroy_methods(class, i + 1);
+							return false;
+						}
+					}
 				}
 			}
 			else if (strcmp((const char *)(attr->name), "Exceptions") == 0) {
+				if (attr->dataLength > 0) {
+					attr->data = pd4j_malloc(attr->dataLength);
+					
+					if (attr->data == NULL) {
+						strncpy(loader->err, "Unable to allocate class file method attribute data: Out of memory", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+					
+					if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+				}
+				
 				uint16_t *data16 = (uint16_t *)attr->data;
 				
 				uint16_t tmp = *data16;
@@ -738,7 +818,15 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				
 				for (uint16_t k = 0; k < attr->parsedData.exceptions.numExceptions; k++) {
 					tmp = *(++data16);
-					pd4j_class_constant *exceptionType = &class->constantPool[REVERSE16(tmp) - 1];
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Method 'throws' table entry is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+					pd4j_class_constant *exceptionType = &class->constantPool[tmp - 1];
 					
 					if (exceptionType->tag != pd4j_CONSTANT_CLASS) {
 						strncpy(loader->err, "Malformed class file: Method 'throws' table entry is not a class constant", 511);
@@ -759,11 +847,35 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				method->synthetic = true;
 			}
 			else if (strcmp((const char *)(attr->name), "Signature") == 0) {
+				if (attr->dataLength > 0) {
+					attr->data = pd4j_malloc(attr->dataLength);
+					
+					if (attr->data == NULL) {
+						strncpy(loader->err, "Unable to allocate class file method attribute data: Out of memory", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+					
+					if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+						pd4j_class_destroy_methods(class, i + 1);
+						return false;
+					}
+				}
+				
 				uint16_t *data16 = (uint16_t *)attr->data;
 			
 				if (!pd4j_class_constant_utf8(class, *data16, &method->signature)) {
 					strncpy(loader->err, "Malformed class file: Method signature does not point to a UTF-8 constant", 511);
 					loader->hasErr = true;
+					pd4j_class_destroy_methods(class, i + 1);
+					return false;
+				}
+			}
+			else {
+				uint8_t data[attr->dataLength];
+				
+				if (pd4j_class_loader_read(loader, data, attr->dataLength) < attr->dataLength) {
 					pd4j_class_destroy_methods(class, i + 1);
 					return false;
 				}
@@ -793,6 +905,7 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 	
 	for (uint16_t i = 0; i < class->numAttributes; i++) {
 		pd4j_class_attribute *attr = &class->attributes[i];
+		attr->data = NULL;
 		
 		if (!pd4j_class_loader_read16(loader, &idx)) {
 			pd4j_class_destroy_attributes(class, i);
@@ -811,23 +924,23 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			return false;
 		}
 		
-		if (attr->dataLength > 0) {
-			attr->data = pd4j_malloc(attr->dataLength);
-			
-			if (attr->data == NULL) {
-				pd4j_class_destroy_attributes(class, i);
-				strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
-				loader->hasErr = true;
-				return false;
-			}
-			
-			if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
-				pd4j_class_destroy_attributes(class, i + 1);
-				return false;
-			}
-		}
-		
 		if (strcmp((const char *)(attr->name), "BootstrapMethods") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			tmp = *(data16++);
 			
@@ -849,6 +962,13 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 				
 				idx = *(data16++);
 				idx = REVERSE16(idx);
+				
+				if (idx > class->numConstants) {
+					strncpy(loader->err, "Malformed class file: Class file bootstrap method is not a valid constant", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
 				
 				if (class->constantPool[idx - 1].tag != pd4j_CONSTANT_METHODREF) {
 					strncpy(loader->err, "Malformed class file: Class file bootstrap method is not a method reference", 511);
@@ -874,12 +994,45 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 				
 				for (uint16_t k = 0; k < method->numArguments; k++) {
 					idx = *(data16++);
-					method->arguments[k] = &class->constantPool[REVERSE16(idx) - 1];
+					idx = REVERSE16(idx);
+					
+					if (idx > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Class file bootstrap method argument is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					method->arguments[k] = &class->constantPool[idx - 1];
 				}
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "NestHost") == 0) {
-			idx = REVERSE16(*(uint16_t *)attr->data);
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
+			idx = *(uint16_t *)attr->data;
+			idx = REVERSE16(idx);
+			
+			if (idx > class->numConstants) {
+				strncpy(loader->err, "Malformed class file: Nest host is not a valid constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
 			
 			if (class->constantPool[idx - 1].tag != pd4j_CONSTANT_CLASS) {
 				strncpy(loader->err, "Malformed class file: Nest host is not a class constant", 511);
@@ -898,6 +1051,22 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			attr->parsedData.nestHost = class->constantPool[idx - 1].data.indices.a - 1;
 		}
 		else if (strcmp((const char *)(attr->name), "NestMembers") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			
 			tmp = *(data16++);
@@ -917,6 +1086,13 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 				idx = *(data16++);
 				idx = REVERSE16(idx);
 				
+				if (idx > class->numConstants) {
+					strncpy(loader->err, "Malformed class file: Nest member is not a valid constant", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+				
 				if (class->constantPool[idx - 1].tag != pd4j_CONSTANT_CLASS) {
 					strncpy(loader->err, "Malformed class file: Nest member is not a class constant", 511);
 					loader->hasErr = true;
@@ -933,6 +1109,22 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "PermittedSubclasses") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_attributes(class, i);
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			uint16_t tmp = *(data16++);
 			
@@ -940,16 +1132,23 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			attr->parsedData.permittedSubclasses.classes = pd4j_malloc(attr->parsedData.permittedSubclasses.numClasses * sizeof(uint8_t *));
 			
 			if (attr->parsedData.permittedSubclasses.classes == NULL) {
-				pd4j_free(attr->data, attr->dataLength);
-				pd4j_class_destroy_attributes(class, i);
 				strncpy(loader->err, "Unable to allocate class file permitted subclass table: Out of memory", 511);
 				loader->hasErr = true;
+				pd4j_free(attr->data, attr->dataLength);
+				pd4j_class_destroy_attributes(class, i);
 				return false;
 			}
 			
 			for (uint16_t j = 0; j < attr->parsedData.permittedSubclasses.numClasses; j++) {
 				tmp = *(data16++);
 				idx = REVERSE16(tmp);
+				
+				if (idx > class->numConstants) {
+					strncpy(loader->err, "Malformed class file: Permitted subclass is not a valid constant", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
 				
 				if (class->constantPool[idx - 1].tag != pd4j_CONSTANT_CLASS) {
 					strncpy(loader->err, "Malformed class file: Permitted subclass is not a class constant", 511);
@@ -967,6 +1166,22 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "SourceFile") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			idx = REVERSE16(*(uint16_t *)(attr->data));
 			
 			if (!pd4j_class_constant_utf8(class, idx, &class->sourceFile)) {
@@ -977,6 +1192,22 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "InnerClasses") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			
 			attr->parsedData.innerClasses.numInnerClasses = REVERSE16(*data16);
@@ -991,7 +1222,16 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			
 			for (uint16_t j = 0; j < attr->parsedData.innerClasses.numInnerClasses; j++) {
 				uint16_t tmp = *(++data16);
-				pd4j_class_constant *inner = &class->constantPool[REVERSE16(tmp) - 1];
+				tmp = REVERSE16(tmp);
+				
+				if (tmp > class->numConstants) {
+					strncpy(loader->err, "Malformed class file: Inner class is not a valid constant", 511);
+					loader->hasErr = true;
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+				
+				pd4j_class_constant *inner = &class->constantPool[tmp - 1];
 				
 				if (inner->tag != pd4j_CONSTANT_CLASS) {
 					strncpy(loader->err, "Malformed class file: Inner class is not a class constant", 511);
@@ -1009,12 +1249,19 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 				
 				pd4j_class_constant *outer;
 				
-				tmp = *(++data16);
+				tmp = *(data16++);
 				idx = REVERSE16(tmp);
 				if (idx == 0) {
 					outer = NULL;
 				}
 				else {
+					if (idx > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Inner class is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
 					outer = &class->constantPool[idx - 1];
 					
 					if (outer == inner) {
@@ -1039,7 +1286,7 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 					return false;
 				}
 				
-				tmp = *(++data16);
+				tmp = *(data16++);
 				idx = REVERSE16(tmp);
 				if (idx == 0) {
 					attr->parsedData.innerClasses.innerClasses[j].innerClassName = NULL;
@@ -1053,13 +1300,40 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 					}
 				}
 				
-				attr->parsedData.innerClasses.innerClasses[j].accessFlags = *(++data16);
+				tmp = *(data16++);
+				attr->parsedData.innerClasses.innerClasses[j].accessFlags = REVERSE16(tmp);
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "EnclosingMethod") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			
-			pd4j_class_constant *enclosingClass = &class->constantPool[REVERSE16(*data16) - 1];
+			tmp = *data16;
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > class->numConstants) {
+				strncpy(loader->err, "Malformed class file: Enclosing class is not a valid constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			pd4j_class_constant *enclosingClass = &class->constantPool[tmp - 1];
 			
 			if (enclosingClass->tag != pd4j_CONSTANT_CLASS) {
 				strncpy(loader->err, "Malformed class file: Enclosing class is not a class constant", 511);
@@ -1076,7 +1350,16 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 			
 			tmp = *(++data16);
-			pd4j_class_constant *enclosingMethod = &class->constantPool[REVERSE16(tmp) - 1];
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > class->numConstants) {
+				strncpy(loader->err, "Malformed class file: Enclosing method is not a valid constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			pd4j_class_constant *enclosingMethod = &class->constantPool[tmp - 1];
 			
 			if (enclosingMethod->tag != pd4j_CONSTANT_NAMEANDTYPE) {
 				strncpy(loader->err, "Malformed class file: Enclosing method is not a name-and-type constant", 511);
@@ -1105,9 +1388,26 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			class->synthetic = true;
 		}
 		else if (strcmp((const char *)(attr->name), "Signature") == 0) {
-			uint16_t *data16 = (uint16_t *)attr->data;
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
 			
-			if (!pd4j_class_constant_utf8(class, *data16, &class->signature)) {
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
+			uint16_t *data16 = (uint16_t *)attr->data;
+			idx = REVERSE16(*data16);
+			
+			if (!pd4j_class_constant_utf8(class, idx, &class->signature)) {
 				strncpy(loader->err, "Malformed class file: Class signature does not point to a UTF-8 constant", 511);
 				loader->hasErr = true;
 				pd4j_class_destroy_attributes(class, i + 1);
@@ -1115,7 +1415,102 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 		}
 		else if (strcmp((const char *)(attr->name), "Record") == 0) {
-			// todo
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+			
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+			
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
+			uint16_t *data16 = (uint16_t *)attr->data;
+			
+			class->numRecordComponents = REVERSE16(*data16);
+			class->recordComponents = pd4j_malloc(class->numRecordComponents * sizeof(pd4j_class_record_component));
+			
+			for (uint16_t j = 0; j < class->numRecordComponents; j++) {
+				pd4j_class_record_component *recordComponent = &class->recordComponents[j];
+				
+				tmp = *(++data16);
+				tmp = REVERSE16(tmp);
+				
+				if (!pd4j_class_constant_utf8(class, tmp, &recordComponent->name)) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Malformed class file: Record component name does not point to a UTF-8 constant", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				tmp = *(data16++);
+				tmp = REVERSE16(tmp);
+				
+				if (!pd4j_class_constant_utf8(class, tmp, &recordComponent->descriptor)) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Malformed class file: Record component descriptor does not point to a UTF-8 constant", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				tmp = *(data16++);
+				uint16_t numAttributes = REVERSE16(tmp);
+				
+				for (uint16_t k = 0; k < numAttributes; k++) {
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					uint8_t *attrName;
+					
+					if (!pd4j_class_constant_utf8(class, tmp, &attrName)) {
+						strncpy(loader->err, "Malformed class file: Record component attribute name is not a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (strcmp((const char *)attrName, "Signature") == 0) {
+						data16 += 2;
+						
+						tmp = *(data16++);
+						tmp = REVERSE16(tmp);
+						
+						if (!pd4j_class_constant_utf8(class, tmp, &recordComponent->signature)) {
+							strncpy(loader->err, "Malformed class file: Record component signature does not point to a UTF-8 constant", 511);
+							loader->hasErr = true;
+							pd4j_class_destroy_attributes(class, i + 1);
+							return false;
+						}
+					}
+					else {
+						tmp = *(data16++);
+						uint32_t attrLength = REVERSE16(tmp);
+						tmp = *(data16++);
+						attrLength = (attrLength << 16) | REVERSE16(tmp);
+						
+						uint8_t data[attrLength];
+						
+						if (pd4j_class_loader_read(loader, data, attrLength) < attrLength) {
+							pd4j_class_destroy_attributes(class, i + 1);
+							return false;
+						}
+					}
+				}
+			}
+		}
+		else {
+			uint8_t data[attr->dataLength];
+			
+			if (pd4j_class_loader_read(loader, data, attr->dataLength) < attr->dataLength) {
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
 		}
 	}
 	
@@ -1278,6 +1673,7 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 	class->numFields = 0;
 	class->numMethods = 0;
 	class->numAttributes = 0;
+	class->numRecordComponents = 0;
 	
 	if (!pd4j_class_loader_read_header(loader, class)) {
 		pd4j_class_destroy(class);

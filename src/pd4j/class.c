@@ -396,6 +396,7 @@ static pd4j_class_reference *pd4j_class_nest_host(pd4j_class_reference *classRef
 	return class->nestHost;
 }
 
+// todo: integrate module access rules
 bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_reference *classRef) {
 	if (classRef->type != pd4j_CLASS_CLASS || target->type != pd4j_CLASS_CLASS) {
 		return true;
@@ -407,6 +408,7 @@ bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_refere
 	return pd4j_class_same_package(classRef, target);
 }
 
+// todo: integrate module access rules
 bool pd4j_class_can_access_property(pd4j_class_property *target, pd4j_class_reference *targetClass, pd4j_class_reference *classRef, pd4j_thread *thread) {
 	if (classRef->type != pd4j_CLASS_CLASS || targetClass->type != pd4j_CLASS_CLASS) {
 		return true;
@@ -717,6 +719,10 @@ void pd4j_class_destroy_attributes(pd4j_class *class, uint16_t upTo) {
 			
 			pd4j_free(class->attributes[i].data, class->attributes[i].dataLength);
 		}
+	}
+	
+	if (class->numRecordComponents > 0) {
+		pd4j_free(class->recordComponents, class->numRecordComponents * sizeof(pd4j_class_record_component));
 	}
 	
 	if (class->numAttributes > 0) {

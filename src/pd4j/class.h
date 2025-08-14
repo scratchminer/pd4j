@@ -269,6 +269,13 @@ typedef struct {
 	uint8_t *signature;
 } pd4j_class_property;
 
+typedef struct {
+	uint8_t *name;
+	uint8_t *descriptor;
+	
+	uint8_t *signature;
+} pd4j_class_record_component;
+
 typedef struct pd4j_class_reference pd4j_class_reference;
 
 typedef struct {
@@ -299,6 +306,9 @@ typedef struct {
 	uint8_t *signature;
 	
 	uint8_t *sourceFile;
+	
+	uint16_t numRecordComponents;
+	pd4j_class_record_component *recordComponents;
 } pd4j_class;
 
 typedef struct pd4j_class_loader pd4j_class_loader;

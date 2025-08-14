@@ -319,7 +319,7 @@ bool pd4j_thread_construct_instance(pd4j_thread *thread, pd4j_thread_reference *
 						break;
 					}
 					case 'D': {
-						instanceFieldRef->tag = pd4j_VARIABLE_FLOAT;
+						instanceFieldRef->tag = pd4j_VARIABLE_DOUBLE;
 						pd4j_free(instanceFieldRef->data.referenceValue, sizeof(pd4j_thread_reference));
 						instanceFieldRef->data.doubleValue = 0.0;
 						break;

@@ -55,7 +55,7 @@ static int pd4j_lua_glue_thread_newInstanceOf(lua_State *L) {
 	const char *luaObjName;
 	enum LuaType argType = pd->lua->getArgType(2, &luaObjName);
 	
-	pd4j_thread_reference *class;
+	pd4j_thread_stack_entry *class;
 	LuaUDObject *classUd;
 	
 	if (argc < 2 || argType != kTypeObject || strcmp(luaObjName, "pd4j.variable") != 0) {
@@ -72,7 +72,7 @@ static int pd4j_lua_glue_thread_newInstanceOf(lua_State *L) {
 	}
 	
 	pd4j_thread_reference *thRef;
-	if (!pd4j_thread_construct_instance(thread, class, &thRef)) {
+	if (!pd4j_thread_construct_instance(thread, class->data.referenceValue, &thRef)) {
 		pd->lua->pushNil();
 		return 1;
 	}
