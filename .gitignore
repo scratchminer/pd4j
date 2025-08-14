@@ -1,0 +1,9 @@
+# macOS system junk
+**/.DS_Store
+
+# Build files
+build/*
+Source/pdex.*
+*.pdx/*
+
+build.sh
