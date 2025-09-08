@@ -60,19 +60,21 @@ static int pd4j_lua_glue_thread_findClass(lua_State *L) {
 	size_t nameLen = pd4j_utf8_to_java(&name, classStr, len);
 	
 	pd4j_thread_reference *currentClass = pd4j_thread_current_class(thread);
-	pd4j_thread_reference *thRef = pd4j_class_get_resolved_class_reference(currentClass->data.class, thread, name);
+	pd4j_thread_reference *thRef = pd4j_class_get_resolved_class_reference(currentClass->data.class.loaded, thread, name);
+	pd4j_free(name, nameLen);
+	
 	if (thRef == NULL) {
 		pd->lua->pushNil();
 		return 1;
 	}
 	else {
 		pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-		if (stackEntry == NULL) {
+		if (value == NULL) {
 			pd->lua->pushNil();
 			return 1;
 		}
 		
-		value->tag = pd4j_VARIABLE_CLASS;
+		value->tag = pd4j_VARIABLE_REFERENCE;
 		value->name = (uint8_t *)"(class loaded from Lua code)";
 		value->data.referenceValue = thRef;
 		
@@ -120,7 +122,7 @@ static int pd4j_lua_glue_thread_newInstanceOf(lua_State *L) {
 	}
 	
 	pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-	if (stackEntry == NULL) {
+	if (value == NULL) {
 		pd->lua->pushNil();
 		return 1;
 	}
@@ -154,15 +156,12 @@ static int pd4j_lua_glue_thread_push(lua_State *L) {
 	}
 	
 	const char *luaObjName;
-	pd4j_thread_stack_entry *value;
-	LuaUDObject *valueUd;
-	
 	if (argc < 2 || pd->lua->getArgType(2, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
 		pd->system->error("argument #2 to pd4j.thread:push() should be a pd4j.value");
 		return 0;
 	}
 	else {
-		value = pd->lua->getArgObject(2, "pd4j.value", &value);
+		pd4j_thread_stack_entry *value = pd->lua->getArgObject(2, "pd4j.value", NULL);
 		pd4j_thread_arg_push(thread, value);
 		return 0;
 	}
@@ -250,7 +249,7 @@ static int pd4j_lua_glue_value_wrap(lua_State *L) {
 	switch (pd->lua->getArgType(1, NULL)) {
 		case kTypeNil: {
 			pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-			if (stackEntry == NULL) {
+			if (value == NULL) {
 				pd->lua->pushNil();
 				return 1;
 			}
@@ -264,7 +263,7 @@ static int pd4j_lua_glue_value_wrap(lua_State *L) {
 		}
 		case kTypeBool: {
 			pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-			if (stackEntry == NULL) {
+			if (value == NULL) {
 				pd->lua->pushNil();
 				return 1;
 			}
@@ -278,7 +277,7 @@ static int pd4j_lua_glue_value_wrap(lua_State *L) {
 		}
 		case kTypeInt: {
 			pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-			if (stackEntry == NULL) {
+			if (value == NULL) {
 				pd->lua->pushNil();
 				return 1;
 			}
@@ -292,7 +291,7 @@ static int pd4j_lua_glue_value_wrap(lua_State *L) {
 		}
 		case kTypeFloat: {
 			pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-			if (stackEntry == NULL) {
+			if (value == NULL) {
 				pd->lua->pushNil();
 				return 1;
 			}
@@ -318,9 +317,9 @@ static int pd4j_lua_glue_value_wrapLong(lua_State *L) {
 		pd->system->error("argument #1 to pd4j.value.wrapLong() should be an integer");
 		return 0;
 	}
-	if (pd->lua->getArgType(1, NULL) == kTypeInt)
+	if (pd->lua->getArgType(1, NULL) == kTypeInt) {
 		pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-		if (stackEntry == NULL) {
+		if (value == NULL) {
 			pd->lua->pushNil();
 			return 1;
 		}
@@ -345,16 +344,16 @@ static int pd4j_lua_glue_value_wrapDouble(lua_State *L) {
 		pd->system->error("argument #1 to pd4j.value.wrapLong() should be a number");
 		return 0;
 	}
-	if (pd->lua->getArgType(1, NULL) == kTypeFloat)
+	if (pd->lua->getArgType(1, NULL) == kTypeFloat) {
 		pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-		if (stackEntry == NULL) {
+		if (value == NULL) {
 			pd->lua->pushNil();
 			return 1;
 		}
 		
 		value->tag = pd4j_VARIABLE_DOUBLE;
 		value->name = (uint8_t *)"(value wrapped from Lua double number)";
-		value->data.doubleValue = pd->lua->getArgFloat(1);
+		value->data.doubleValue = (double)(pd->lua->getArgFloat(1));
 		
 		pd->lua->pushObject(value, "pd4j.value", 0);
 		return 1;

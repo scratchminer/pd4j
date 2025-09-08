@@ -2,6 +2,7 @@
 
 #include "pd4j/class.h"
 #include "pd4j/class_loader.h"
+#include "pd4j/memory.h"
 #include "pd4j/utf8.h"
 
 PlaydateAPI *pd;

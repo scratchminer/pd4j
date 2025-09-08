@@ -11,7 +11,7 @@ bool pd4j_module_can_access_class(pd4j_class_reference *target, pd4j_module *mod
 		return true;
 	}
 	
-	pd4j_module *targetModule = target->runtimeModule->parsedData.module;
+	pd4j_module *targetModule = target->runtimeModule;
 	size_t max1 = strrchr((char *)(target->data.class->thisClass), '/') - (char *)(target->data.class->thisClass);
 	
 	if (isReflective) {
@@ -25,7 +25,7 @@ bool pd4j_module_can_access_class(pd4j_class_reference *target, pd4j_module *mod
 				}
 				
 				for (uint16_t j = 0; j < openedPackage->numOpensTo; j++) {
-					if (strncmp(openedPackage->opensTo[j], targetModule->name, strlen((char *)(targetModule->name))) == 0) {
+					if (memcmp(openedPackage->opensTo[j], targetModule->name, strlen((char *)(targetModule->name))) == 0) {
 						return true;
 					}
 				}
@@ -45,7 +45,7 @@ bool pd4j_module_can_access_class(pd4j_class_reference *target, pd4j_module *mod
 				}
 				
 				for (uint16_t j = 0; j < exportedPackage->numExportsTo; j++) {
-					if (strncmp(exportedPackage->exportsTo[j], targetModule->name, strlen((char *)(targetModule->name))) == 0) {
+					if (memcmp(exportedPackage->exportsTo[j], targetModule->name, strlen((char *)(targetModule->name))) == 0) {
 						return true;
 					}
 				}

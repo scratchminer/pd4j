@@ -164,7 +164,7 @@ bool pd4j_thread_initialize_class(pd4j_thread *thread, pd4j_thread_reference *th
 			
 			staticFieldRef->name = field.name;
 			staticFieldRef->tag = pd4j_VARIABLE_REFERENCE;
-			staticFieldRef->data.referenceValue->resolved = TRUE;
+			staticFieldRef->data.referenceValue->resolved = true;
 			staticFieldRef->data.referenceValue->kind = pd4j_REF_NULL;
 			staticFieldRef->data.referenceValue->monitor.owner = NULL;
 			staticFieldRef->data.referenceValue->monitor.entryCount = 0;
@@ -294,7 +294,7 @@ bool pd4j_thread_construct_instance(pd4j_thread *thread, pd4j_thread_reference *
 			
 			instanceFieldRef->name = field.name;
 			instanceFieldRef->tag = pd4j_VARIABLE_REFERENCE;
-			instanceFieldRef->data.referenceValue->resolved = TRUE;
+			instanceFieldRef->data.referenceValue->resolved = true;
 			instanceFieldRef->data.referenceValue->kind = pd4j_REF_NULL;
 			instanceFieldRef->data.referenceValue->monitor.owner = NULL;
 			instanceFieldRef->data.referenceValue->monitor.entryCount = 0;
