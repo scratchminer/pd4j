@@ -16,7 +16,7 @@ int eventHandler(PlaydateAPI* playdate, PDSystemEvent event, uint32_t arg) {
 		pd = playdate;
 		
 		uint8_t *name;
-		pd4j_utf8_to_java(&name, "Main", 4);
+		size_t sz = pd4j_utf8_to_java(&name, "Main", 4);
 		
 		pd4j_class_loader *loader = pd4j_class_loader_new(NULL);
 		pd4j_class_reference *class = pd4j_class_loader_load(loader, NULL, name);
@@ -24,7 +24,7 @@ int eventHandler(PlaydateAPI* playdate, PDSystemEvent event, uint32_t arg) {
 		if (class != NULL) {
 			pd4j_class_reference_destroy(class);
 		}
-		pd->system->realloc(name, 0);
+		pd4j_free(name, sz);
 	}
 	
 	return 0;

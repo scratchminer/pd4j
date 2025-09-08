@@ -6,11 +6,13 @@
 #include "class.h"
 #include "class_loader.h"
 #include "memory.h"
+#include "module.h"
 #include "resolve.h"
 #include "utf8.h"
 
 static pd4j_class_reference byteClassRef = {
 	(uint8_t *)"byte",
+	NULL,
 	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'B'},
@@ -32,6 +34,7 @@ static pd4j_thread_reference byteThreadRef = {
 static pd4j_class_reference charClassRef = {
 	(uint8_t *)"char",
 	NULL,
+	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'C'},
 	NULL
@@ -51,6 +54,7 @@ static pd4j_thread_reference charThreadRef = {
 
 static pd4j_class_reference doubleClassRef = {
 	(uint8_t *)"double",
+	NULL,
 	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'D'},
@@ -72,6 +76,7 @@ static pd4j_thread_reference doubleThreadRef = {
 static pd4j_class_reference floatClassRef = {
 	(uint8_t *)"float",
 	NULL,
+	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'F'},
 	NULL
@@ -91,6 +96,7 @@ static pd4j_thread_reference floatThreadRef = {
 
 static pd4j_class_reference intClassRef = {
 	(uint8_t *)"int",
+	NULL,
 	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'I'},
@@ -112,6 +118,7 @@ static pd4j_thread_reference intThreadRef = {
 static pd4j_class_reference longClassRef = {
 	(uint8_t *)"long",
 	NULL,
+	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'J'},
 	NULL
@@ -131,6 +138,7 @@ static pd4j_thread_reference longThreadRef = {
 
 static pd4j_class_reference shortClassRef = {
 	(uint8_t *)"short",
+	NULL,
 	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'S'},
@@ -152,6 +160,7 @@ static pd4j_thread_reference shortThreadRef = {
 static pd4j_class_reference voidClassRef = {
 	(uint8_t *)"void",
 	NULL,
+	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'V'},
 	NULL
@@ -171,6 +180,7 @@ static pd4j_thread_reference voidThreadRef = {
 
 static pd4j_class_reference booleanClassRef = {
 	(uint8_t *)"boolean",
+	NULL,
 	NULL,
 	pd4j_CLASS_PRIMITIVE,
 	{.primitiveType = (uint8_t)'Z'},
@@ -210,6 +220,14 @@ pd4j_class_attribute *pd4j_class_property_attribute_name(pd4j_class_property *pr
 }
 
 bool pd4j_class_constant_utf8(pd4j_class *class, uint16_t idx, uint8_t **value) {
+	if (idx > class->numConstants) {
+		return false;
+	}
+	else if (idx == 0 && value != NULL) {
+		*value = NULL;
+		return true;
+	}
+	
 	pd4j_class_constant constant = class->constantPool[idx - 1];
 	
 	if (constant.tag != pd4j_CONSTANT_UTF8) {
@@ -223,6 +241,10 @@ bool pd4j_class_constant_utf8(pd4j_class *class, uint16_t idx, uint8_t **value) 
 }
 
 bool pd4j_class_constant_int(pd4j_class *class, uint16_t idx, int32_t *value) {
+	if (idx > class->numConstants) {
+		return false;
+	}
+	
 	pd4j_class_constant constant = class->constantPool[idx - 1];
 	
 	if (constant.tag != pd4j_CONSTANT_INT) {
@@ -236,6 +258,10 @@ bool pd4j_class_constant_int(pd4j_class *class, uint16_t idx, int32_t *value) {
 }
 
 bool pd4j_class_constant_float(pd4j_class *class, uint16_t idx, float *value) {
+	if (idx > class->numConstants) {
+		return false;
+	}
+	
 	pd4j_class_constant constant = class->constantPool[idx - 1];
 	
 	if (constant.tag != pd4j_CONSTANT_FLOAT) {
@@ -249,6 +275,10 @@ bool pd4j_class_constant_float(pd4j_class *class, uint16_t idx, float *value) {
 }
 
 bool pd4j_class_constant_long(pd4j_class *class, uint16_t idx, int64_t *value) {
+	if (idx > class->numConstants) {
+		return false;
+	}
+	
 	pd4j_class_constant constant = class->constantPool[idx - 1];
 	pd4j_class_constant constant2 = class->constantPool[idx];
 	
@@ -269,6 +299,10 @@ bool pd4j_class_constant_long(pd4j_class *class, uint16_t idx, int64_t *value) {
 }
 
 bool pd4j_class_constant_double(pd4j_class *class, uint16_t idx, double *value) {
+	if (idx > class->numConstants) {
+		return false;
+	}
+	
 	pd4j_class_constant constant = class->constantPool[idx - 1];
 	pd4j_class_constant constant2 = class->constantPool[idx];
 	
@@ -330,7 +364,7 @@ bool pd4j_class_can_cast(pd4j_class_reference *class1, pd4j_class_reference *cla
 }
 
 bool pd4j_class_same_package(pd4j_class_reference *class1, pd4j_class_reference *class2) {
-	if (class1->definingLoader != class2->definingLoader) {
+	if (class1->definingLoader != class2->definingLoader || class1->runtimeModule != class2->runtimeModule) {
 		return false;
 	}
 	
@@ -396,10 +430,12 @@ static pd4j_class_reference *pd4j_class_nest_host(pd4j_class_reference *classRef
 	return class->nestHost;
 }
 
-// todo: integrate module access rules
 bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_reference *classRef) {
 	if (classRef->type != pd4j_CLASS_CLASS || target->type != pd4j_CLASS_CLASS) {
 		return true;
+	}
+	if (!pd4j_module_can_access_class(target, classRef->runtimeModule, false)) {
+		return false;
 	}
 	if ((target->data.class->accessFlags & pd4j_CLASS_ACC_PUBLIC) != 0) {
 		return true;
@@ -408,7 +444,20 @@ bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_refere
 	return pd4j_class_same_package(classRef, target);
 }
 
-// todo: integrate module access rules
+bool pd4j_class_can_access_class_reflective(pd4j_class_reference *target, pd4j_class_reference *classRef) {
+	if (classRef->type != pd4j_CLASS_CLASS || target->type != pd4j_CLASS_CLASS) {
+		return true;
+	}
+	if (!pd4j_module_can_access_class(target, classRef->runtimeModule, true)) {
+		return false;
+	}
+	if ((target->data.class->accessFlags & pd4j_CLASS_ACC_PUBLIC) != 0) {
+		return true;
+	}
+	
+	return pd4j_class_same_package(classRef, target);
+}
+
 bool pd4j_class_can_access_property(pd4j_class_property *target, pd4j_class_reference *targetClass, pd4j_class_reference *classRef, pd4j_thread *thread) {
 	if (classRef->type != pd4j_CLASS_CLASS || targetClass->type != pd4j_CLASS_CLASS) {
 		return true;
@@ -715,6 +764,47 @@ void pd4j_class_destroy_attributes(pd4j_class *class, uint16_t upTo) {
 			}
 			else if (strcmp((const char *)(class->attributes[i].name), "InnerClasses") == 0 && class->attributes[i].parsedData.innerClasses.numInnerClasses > 0) {
 				pd4j_free(class->attributes[i].parsedData.innerClasses.innerClasses, class->attributes[i].parsedData.innerClasses.numInnerClasses * sizeof(pd4j_class_inner_class_entry));
+			}
+			else if (strcmp((const char *)(class->attributes[i].name), "Module") == 0) {
+				if (class->attributes[i].parsedData.module->numRequiresEntries > 0) {
+					pd4j_free(class->attributes[i].parsedData.module->requiresEntries, class->attributes[i].parsedData.module->numRequiresEntries * sizeof(pd4j_module_requires_entry));
+				}
+				
+				if (class->attributes[i].parsedData.module->numExportsEntries > 0) {
+					for (uint16_t j = 0; j < class->attributes[i].parsedData.module->numExportsEntries; j++) {
+						if (class->attributes[i].parsedData.module->exportsEntries[j].numExportsTo > 0) {
+							pd4j_free(class->attributes[i].parsedData.module->exportsEntries[j].exportsTo, class->attributes[i].parsedData.module->exportsEntries[j].numExportsTo * sizeof(uint8_t *));
+						}
+					}
+					
+					pd4j_free(class->attributes[i].parsedData.module->exportsEntries, class->attributes[i].parsedData.module->numExportsEntries * sizeof(pd4j_module_exports_entry));
+				}
+				
+				if (class->attributes[i].parsedData.module->numOpensEntries > 0) {
+					for (uint16_t j = 0; j < class->attributes[i].parsedData.module->numOpensEntries; j++) {
+						if (class->attributes[i].parsedData.module->opensEntries[j].numOpensTo > 0) {
+							pd4j_free(class->attributes[i].parsedData.module->opensEntries[j].opensTo, class->attributes[i].parsedData.module->opensEntries[j].numOpensTo * sizeof(uint8_t *));
+						}
+					}
+					
+					pd4j_free(class->attributes[i].parsedData.module->opensEntries, class->attributes[i].parsedData.module->numOpensEntries * sizeof(pd4j_module_opens_entry));
+				}
+				
+				if (class->attributes[i].parsedData.module->numUsesEntries > 0) {
+					pd4j_free(class->attributes[i].parsedData.module->usesEntries, class->attributes[i].parsedData.module->numUsesEntries * sizeof(uint8_t *));
+				}
+				
+				if (class->attributes[i].parsedData.module->numProvidesEntries > 0) {
+					for (uint16_t j = 0; j < class->attributes[i].parsedData.module->numProvidesEntries; j++) {
+						if (class->attributes[i].parsedData.module->providesEntries[j].numImplementorEntries > 0) {
+							pd4j_free(class->attributes[i].parsedData.module->providesEntries[j].implementorEntries, class->attributes[i].parsedData.module->providesEntries[j].numImplementorEntries * sizeof(uint8_t *));
+						}
+					}
+					
+					pd4j_free(class->attributes[i].parsedData.module->providesEntries, class->attributes[i].parsedData.module->numProvidesEntries * sizeof(pd4j_module_provides_entry));
+				}
+				
+				pd4j_free(class->attributes[i].parsedData.module, sizeof(pd4j_module));
 			}
 			
 			pd4j_free(class->attributes[i].data, class->attributes[i].dataLength);

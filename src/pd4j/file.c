@@ -104,7 +104,7 @@ pd4j_file *pd4j_file_open(const char *path) {
 				}
 				pd4j_free(file, sizeof(pd4j_file));
 				
-				return false;
+				return NULL;
 			}
 			
 			if (reset) {

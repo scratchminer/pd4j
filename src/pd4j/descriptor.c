@@ -83,14 +83,13 @@ size_t pd4j_descriptor_from_method_reference(uint8_t **descriptor, pd4j_thread_r
 	
 	for (uint32_t i = 0; i < thVar->data.method.argumentDescriptors->size; i++) {
 		char *classDescriptorString = (char *)(((pd4j_thread_reference *)thVar->data.method.argumentDescriptors->array[i])->data.class.loaded->name);
-		
-		strncat((char *)descriptorPtr, classDescriptorString, strlen(classDescriptorString));
+		strncat((char *)descriptorPtr, classDescriptorString, strlen(classDescriptorString) + 1);
 	}
 	
 	strcat((char *)descriptorPtr, ")");
 	
 	char *returnTypeDescriptorString = (char *)(returnTypeDescriptor->data.class.loaded->name);
-	strncat((char *)descriptorPtr, returnTypeDescriptorString, strlen(returnTypeDescriptorString));
+	strncat((char *)descriptorPtr, returnTypeDescriptorString, strlen(returnTypeDescriptorString) + 1);
 	
 	return length;
 }

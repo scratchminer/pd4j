@@ -22,7 +22,9 @@ typedef enum {
 	pd4j_CONSTANT_METHODHANDLE = 15,
 	pd4j_CONSTANT_METHODTYPE = 16,
 	pd4j_CONSTANT_DYNAMIC = 17,
-	pd4j_CONSTANT_INVOKEDYNAMIC = 18
+	pd4j_CONSTANT_INVOKEDYNAMIC = 18,
+	pd4j_CONSTANT_MODULE = 19,
+	pd4j_CONSTANT_PACKAGE = 20
 } pd4j_class_constant_tag;
 
 typedef enum {
@@ -36,29 +38,6 @@ typedef enum {
 	pd4j_CLASS_ACC_ENUM = 0x4000,
 	pd4j_CLASS_ACC_MODULE = 0x8000
 } pd4j_class_access_flags;
-
-typedef enum {
-	pd4j_MODULE_ACC_OPEN = 0x0020,
-	pd4j_MODULE_ACC_SYNTHETIC = 0x1000,
-	pd4j_MODULE_ACC_MANDATED = 0x8000
-} pd4j_class_module_access_flags;
-
-typedef enum {
-	pd4j_REQUIRES_ACC_TRANSITIVE = 0x0020,
-	pd4j_REQUIRES_ACC_STATIC_PHASE = 0x0040,
-	pd4j_REQUIRES_ACC_SYNTHETIC = 0x1000,
-	pd4j_REQUIRES_ACC_MANDATED = 0x8000
-} pd4j_class_module_requires_access_flags;
-
-typedef enum {
-	pd4j_EXPORTS_ACC_SYNTHETIC = 0x1000,
-	pd4j_EXPORTS_ACC_MANDATED = 0x8000
-} pd4j_class_module_exports_access_flags;
-
-typedef enum {
-	pd4j_OPENS_ACC_SYNTHETIC = 0x1000,
-	pd4j_OPENS_ACC_MANDATED = 0x8000
-} pd4j_class_module_opens_access_flags;
 
 typedef enum {
 	pd4j_INNER_ACC_PUBLIC = 0x0001,
@@ -157,31 +136,7 @@ typedef struct {
 	pd4j_class_attribute *attributes;
 } pd4j_class_record_component_entry;
 
-typedef struct {
-	uint8_t *module;
-	pd4j_class_module_requires_access_flags accessFlags;
-	uint8_t *version; 
-} pd4j_class_module_requires_entry;
-
-typedef struct {
-	uint8_t *package;
-	pd4j_class_module_exports_access_flags accessFlags;
-	uint16_t numExportsTo;
-	uint8_t **exportsTo;
-} pd4j_class_module_exports_entry;
-
-typedef struct {
-	uint8_t *package;
-	pd4j_class_module_opens_access_flags accessFlags;
-	uint16_t numOpensTo;
-	uint8_t **opensTo;
-} pd4j_class_module_opens_entry;
-
-typedef struct {
-	uint8_t *interface;
-	uint16_t numImplementorEntries;
-	uint8_t **implementorEntries;
-} pd4j_class_module_provides_entry;
+typedef struct pd4j_module pd4j_module;
 
 struct pd4j_class_attribute {
 	uint8_t *name;
@@ -231,28 +186,7 @@ struct pd4j_class_attribute {
 			uint16_t numComponents;
 			pd4j_class_record_component_entry *components;
 		} record;
-		
-		struct {
-			uint8_t *moduleName;
-			pd4j_class_module_access_flags moduleAccessFlags;
-			uint8_t *moduleVersion;
-			
-			uint16_t numRequiresEntries;
-			pd4j_class_module_requires_entry *requiresEntries;
-			
-			uint16_t numExportsEntries;
-			pd4j_class_module_opens_entry *exportsEntries;
-			
-			uint16_t numOpensEntries;
-			pd4j_class_module_opens_entry *opensEntries;
-			
-			uint16_t numUsesEntries;
-			uint8_t **usesEntries;
-			
-			uint16_t numProvidesEntries;
-			pd4j_class_module_provides_entry *providesEntries;
-		} module;
-		uint8_t *moduleMainClass;
+		pd4j_module *module;
 	} parsedData;
 };
 
@@ -309,6 +243,8 @@ typedef struct {
 	
 	uint16_t numRecordComponents;
 	pd4j_class_record_component *recordComponents;
+	
+	pd4j_class_attribute *moduleAttribute;
 } pd4j_class;
 
 typedef struct pd4j_class_loader pd4j_class_loader;
@@ -322,6 +258,7 @@ typedef enum {
 struct pd4j_class_reference {
 	uint8_t *name;
 	pd4j_class_loader *definingLoader;
+	pd4j_module *runtimeModule;
 	pd4j_class_reference_type type;
 	union {
 		pd4j_class *class;
@@ -365,6 +302,7 @@ bool pd4j_class_can_cast(pd4j_class_reference *class1, pd4j_class_reference *cla
 bool pd4j_class_same_package(pd4j_class_reference *class1, pd4j_class_reference *class2);
 
 bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_reference *classRef);
+bool pd4j_class_can_access_class_reflective(pd4j_class_reference *target, pd4j_class_reference *classRef);
 bool pd4j_class_can_access_property(pd4j_class_property *target, pd4j_class_reference *targetClass, pd4j_class_reference *classRef, pd4j_thread *thread);
 
 void pd4j_class_add_resolved_reference(pd4j_class_reference *ref, pd4j_class_resolved_reference *resolvedReference);

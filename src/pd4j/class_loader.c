@@ -9,6 +9,7 @@
 #include "file.h"
 #include "list.h"
 #include "memory.h"
+#include "module.h"
 #include "thread.h"
 #include "utf8.h"
 
@@ -18,8 +19,10 @@
 #define JAVA_CLASS_FILE_FIRST_NORMAL 56
 #define JAVA_CLASS_FILE_LAST_NORMAL 68
 
-#define REVERSE16(x) ((((x) & 0xff00) >> 8) | (((x) & 0xff) << 8))
-#define REVERSE32(x) (REVERSE16(((x) & 0xffff0000) >> 16) | (REVERSE16((x) & 0xffff) << 16))
+static const int endianCheck = 1;
+
+#define REVERSE16(x) (((*(char *)&endianCheck) == 0) ? (x) : ((((x) & 0xff00) >> 8) | (((x) & 0xff) << 8)))
+#define REVERSE32(x) (((*(char *)&endianCheck) == 0) ? (x) : (REVERSE16(((x) & 0xffff0000) >> 16) | (REVERSE16((x) & 0xffff) << 16)))
 
 struct pd4j_class_loader {
 	pd4j_file *fh;
@@ -269,7 +272,9 @@ static bool pd4j_class_loader_read_constants(pd4j_class_loader *loader, pd4j_cla
 			}
 			case pd4j_CONSTANT_CLASS: 
 			case pd4j_CONSTANT_STRING:
-			case pd4j_CONSTANT_METHODTYPE: {
+			case pd4j_CONSTANT_METHODTYPE:
+			case pd4j_CONSTANT_MODULE:
+			case pd4j_CONSTANT_PACKAGE: {
 				if (!pd4j_class_loader_read16(loader, &constant->data.indices.a)) {
 					pd4j_class_destroy_constants(class, i);
 					return false;
@@ -538,7 +543,17 @@ static bool pd4j_class_loader_read_fields(pd4j_class_loader *loader, pd4j_class 
 					}
 				}
 				
-				attr->parsedData.constantValue = *(uint16_t *)attr->data;
+				uint16_t *data16 = (uint16_t *)attr->data;
+				idx = REVERSE16(*data16);
+				
+				if (idx == 0 || idx > class->numConstants) {
+					pd4j_class_destroy_fields(class, i + 1);
+					strncpy(loader->err, "Malformed class file: Constant value is not a valid constant", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.constantValue = idx;
 			}
 			else if (strcmp((const char *)(attr->name), "Synthetic") == 0) {
 				field->synthetic = true;
@@ -804,8 +819,8 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				}
 				
 				uint16_t *data16 = (uint16_t *)attr->data;
+				uint16_t tmp = *(data16++);
 				
-				uint16_t tmp = *data16;
 				attr->parsedData.exceptions.numExceptions = REVERSE16(tmp);
 				attr->parsedData.exceptions.exceptions = pd4j_malloc(attr->parsedData.exceptions.numExceptions * sizeof(uint8_t *));
 				
@@ -817,7 +832,7 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 				}
 				
 				for (uint16_t k = 0; k < attr->parsedData.exceptions.numExceptions; k++) {
-					tmp = *(++data16);
+					tmp = *(data16++);
 					tmp = REVERSE16(tmp);
 					
 					if (tmp > class->numConstants) {
@@ -1209,8 +1224,9 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 			
 			uint16_t *data16 = (uint16_t *)attr->data;
+			idx = *(data16++);
 			
-			attr->parsedData.innerClasses.numInnerClasses = REVERSE16(*data16);
+			attr->parsedData.innerClasses.numInnerClasses = REVERSE16(idx);
 			attr->parsedData.innerClasses.innerClasses = pd4j_malloc(attr->parsedData.innerClasses.numInnerClasses * sizeof(pd4j_class_inner_class_entry));
 			
 			if (attr->parsedData.innerClasses.innerClasses == NULL) {
@@ -1221,7 +1237,7 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 			
 			for (uint16_t j = 0; j < attr->parsedData.innerClasses.numInnerClasses; j++) {
-				uint16_t tmp = *(++data16);
+				uint16_t tmp = *(data16++);
 				tmp = REVERSE16(tmp);
 				
 				if (tmp > class->numConstants) {
@@ -1323,7 +1339,7 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			
 			uint16_t *data16 = (uint16_t *)attr->data;
 			
-			tmp = *data16;
+			tmp = *(data16++);
 			tmp = REVERSE16(tmp);
 			
 			if (tmp > class->numConstants) {
@@ -1349,7 +1365,7 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 				return false;
 			}
 			
-			tmp = *(++data16);
+			tmp = *(data16++);
 			tmp = REVERSE16(tmp);
 			
 			if (tmp > class->numConstants) {
@@ -1432,14 +1448,15 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 			}
 			
 			uint16_t *data16 = (uint16_t *)attr->data;
+			tmp = *(data16++);
 			
-			class->numRecordComponents = REVERSE16(*data16);
+			class->numRecordComponents = REVERSE16(tmp);
 			class->recordComponents = pd4j_malloc(class->numRecordComponents * sizeof(pd4j_class_record_component));
 			
 			for (uint16_t j = 0; j < class->numRecordComponents; j++) {
 				pd4j_class_record_component *recordComponent = &class->recordComponents[j];
 				
-				tmp = *(++data16);
+				tmp = *(data16++);
 				tmp = REVERSE16(tmp);
 				
 				if (!pd4j_class_constant_utf8(class, tmp, &recordComponent->name)) {
@@ -1503,6 +1520,472 @@ static bool pd4j_class_loader_read_attributes(pd4j_class_loader *loader, pd4j_cl
 					}
 				}
 			}
+		}
+		else if (strcmp((const char *)(attr->name), "Module") == 0) {
+			if (attr->dataLength > 0) {
+				attr->data = pd4j_malloc(attr->dataLength);
+				
+				if (attr->data == NULL) {
+					pd4j_class_destroy_attributes(class, i);
+					strncpy(loader->err, "Unable to allocate class file attribute data: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module = pd4j_malloc(sizeof(pd4j_module));
+				
+				if (attr->parsedData.module == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numRequiresEntries = 0;
+				attr->parsedData.module->numExportsEntries = 0;
+				attr->parsedData.module->numOpensEntries = 0;
+				attr->parsedData.module->numUsesEntries = 0;
+				attr->parsedData.module->numProvidesEntries = 0;
+				
+				if (pd4j_class_loader_read(loader, attr->data, attr->dataLength) < attr->dataLength) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					return false;
+				}
+			}
+			
+			uint16_t *data16 = (uint16_t *)attr->data;
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > class->numConstants) {
+				strncpy(loader->err, "Malformed class file: Current module is not a valid constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			pd4j_class_constant *currentModule = &class->constantPool[tmp - 1];
+			
+			if (currentModule->tag != pd4j_CONSTANT_MODULE) {
+				strncpy(loader->err, "Malformed class file: Current module is not a module constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			if (!pd4j_class_constant_utf8(class, currentModule->data.indices.a, &attr->parsedData.module->name)) {
+				strncpy(loader->err, "Malformed class file: Current module name does not point to a UTF-8 constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			tmp = *(data16++);
+			attr->parsedData.module->moduleAccessFlags = REVERSE16(tmp);
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > class->numConstants) {
+				strncpy(loader->err, "Malformed class file: Current module version is not a valid constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			if (!pd4j_class_constant_utf8(class, tmp, &attr->parsedData.module->version)) {
+				strncpy(loader->err, "Malformed class file: Current module version does not point to a UTF-8 constant", 511);
+				loader->hasErr = true;
+				pd4j_class_destroy_attributes(class, i + 1);
+				return false;
+			}
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > 0) {
+				attr->parsedData.module->requiresEntries = pd4j_malloc(tmp * sizeof(pd4j_module_requires_entry));
+				
+				if (attr->parsedData.module->requiresEntries == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module 'requires' entries: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numRequiresEntries = tmp;
+				
+				for (uint16_t j = 0; j < attr->parsedData.module->numRequiresEntries; j++) {
+					pd4j_module_requires_entry *entry = &attr->parsedData.module->requiresEntries[j];
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Module 'requires' entry module is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					pd4j_class_constant *requiresModule = &class->constantPool[tmp - 1];
+					
+					if (requiresModule->tag != pd4j_CONSTANT_MODULE) {
+						strncpy(loader->err, "Malformed class file: Module 'requires' entry module is not a module constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (!pd4j_class_constant_utf8(class, requiresModule->data.indices.a, &entry->module)) {
+						strncpy(loader->err, "Malformed class file: Module 'requires' entry module name does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					tmp = *(data16++);
+					entry->accessFlags = REVERSE16(tmp);
+					
+					tmp = *(data16++);
+					
+					if (!pd4j_class_constant_utf8(class, REVERSE16(tmp), &entry->version)) {
+						strncpy(loader->err, "Malformed class file: Module 'requires' entry module version does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+				}
+			}
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > 0) {
+				attr->parsedData.module->exportsEntries = pd4j_malloc(tmp * sizeof(pd4j_module_exports_entry));
+				
+				if (attr->parsedData.module->exportsEntries == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module 'exports' entries: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numExportsEntries = tmp;
+				
+				for (uint16_t j = 0; j < attr->parsedData.module->numExportsEntries; j++) {
+					pd4j_module_exports_entry *entry = &attr->parsedData.module->exportsEntries[j];
+					
+					entry->numExportsTo = 0;
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Module 'exports' entry package is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					pd4j_class_constant *exportsPackage = &class->constantPool[tmp - 1];
+					
+					if (exportsPackage->tag != pd4j_CONSTANT_PACKAGE) {
+						strncpy(loader->err, "Malformed class file: Module 'exports' entry package is not a package constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (!pd4j_class_constant_utf8(class, exportsPackage->data.indices.a, &entry->package)) {
+						strncpy(loader->err, "Malformed class file: Module 'requires' entry package name does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					tmp = *(data16++);
+					entry->accessFlags = REVERSE16(tmp);
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > 0) {
+						entry->exportsTo = pd4j_malloc(tmp * sizeof(uint8_t *));
+						
+						if (entry->exportsTo == NULL) {
+							pd4j_class_destroy_attributes(class, i + 1);
+							strncpy(loader->err, "Unable to allocate module 'exports to' entries: Out of memory", 511);
+							loader->hasErr = true;
+							return false;
+						}
+						
+						entry->numExportsTo = tmp;
+						
+						for (uint16_t k = 0; k < entry->numExportsTo; k++) {
+							tmp = *(data16++);
+							tmp = REVERSE16(tmp);
+							
+							if (tmp > class->numConstants) {
+								strncpy(loader->err, "Malformed class file: Module 'exports to' entry module is not a valid constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							pd4j_class_constant *exportsToModule = &class->constantPool[tmp - 1];
+							
+							if (exportsToModule->tag != pd4j_CONSTANT_MODULE) {
+								strncpy(loader->err, "Malformed class file: Module 'exports to' entry module is not a module constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							if (!pd4j_class_constant_utf8(class, exportsToModule->data.indices.a, &entry->exportsTo[k])) {
+								strncpy(loader->err, "Malformed class file: Module 'exports to' entry module name does not point to a UTF-8 constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+						}
+					}
+				}
+			}
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > 0) {
+				attr->parsedData.module->opensEntries = pd4j_malloc(tmp * sizeof(pd4j_module_opens_entry));
+				
+				if (attr->parsedData.module->opensEntries == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module 'opens' entries: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numOpensEntries = tmp;
+				
+				for (uint16_t j = 0; j < attr->parsedData.module->numOpensEntries; j++) {
+					pd4j_module_opens_entry *entry = &attr->parsedData.module->opensEntries[j];
+					
+					entry->numOpensTo = 0;
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Module 'opens' entry package is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					pd4j_class_constant *opensPackage = &class->constantPool[tmp - 1];
+					
+					if (opensPackage->tag != pd4j_CONSTANT_PACKAGE) {
+						strncpy(loader->err, "Malformed class file: Module 'opens' entry package is not a package constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (!pd4j_class_constant_utf8(class, opensPackage->data.indices.a, &entry->package)) {
+						strncpy(loader->err, "Malformed class file: Module 'opens' entry package name does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					tmp = *(data16++);
+					entry->accessFlags = REVERSE16(tmp);
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > 0) {
+						entry->opensTo = pd4j_malloc(tmp * sizeof(uint8_t *));
+						
+						if (entry->opensTo == NULL) {
+							pd4j_class_destroy_attributes(class, i + 1);
+							strncpy(loader->err, "Unable to allocate module 'opens to' entries: Out of memory", 511);
+							loader->hasErr = true;
+							return false;
+						}
+						
+						entry->numOpensTo = tmp;
+						
+						for (uint16_t k = 0; k < entry->numOpensTo; k++) {
+							tmp = *(data16++);
+							tmp = REVERSE16(tmp);
+							
+							if (tmp > class->numConstants) {
+								strncpy(loader->err, "Malformed class file: Module 'opens to' entry module is not a valid constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							pd4j_class_constant *opensToModule = &class->constantPool[tmp - 1];
+							
+							if (opensToModule->tag != pd4j_CONSTANT_MODULE) {
+								strncpy(loader->err, "Malformed class file: Module 'opens to' entry module is not a module constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							if (!pd4j_class_constant_utf8(class, opensToModule->data.indices.a, &entry->opensTo[k])) {
+								strncpy(loader->err, "Malformed class file: Module 'opens to' entry module name does not point to a UTF-8 constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+						}
+					}
+				}
+			}
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > 0) {
+				attr->parsedData.module->usesEntries = pd4j_malloc(tmp * sizeof(uint8_t *));
+				
+				if (attr->parsedData.module->usesEntries == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module 'uses' entries: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numUsesEntries = tmp;
+				
+				for (uint16_t j = 0; j < attr->parsedData.module->numUsesEntries; j++) {
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Module 'uses' entry class is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					pd4j_class_constant *usesInterface = &class->constantPool[tmp - 1];
+					
+					if (usesInterface->tag != pd4j_CONSTANT_CLASS) {
+						strncpy(loader->err, "Malformed class file: Module 'uses' entry class is not a module constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (!pd4j_class_constant_utf8(class, usesInterface->data.indices.a, &attr->parsedData.module->usesEntries[j])) {
+						strncpy(loader->err, "Malformed class file: Module 'uses' entry class name does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+				}
+			}
+			
+			tmp = *(data16++);
+			tmp = REVERSE16(tmp);
+			
+			if (tmp > 0) {
+				attr->parsedData.module->providesEntries = pd4j_malloc(tmp * sizeof(pd4j_module_opens_entry));
+				
+				if (attr->parsedData.module->providesEntries == NULL) {
+					pd4j_class_destroy_attributes(class, i + 1);
+					strncpy(loader->err, "Unable to allocate module 'provides' entries: Out of memory", 511);
+					loader->hasErr = true;
+					return false;
+				}
+				
+				attr->parsedData.module->numProvidesEntries = tmp;
+				
+				for (uint16_t j = 0; j < attr->parsedData.module->numOpensEntries; j++) {
+					pd4j_module_provides_entry *entry = &attr->parsedData.module->providesEntries[j];
+					
+					entry->numImplementorEntries = 0;
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > class->numConstants) {
+						strncpy(loader->err, "Malformed class file: Module 'provides' entry class is not a valid constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					pd4j_class_constant *providesInterface = &class->constantPool[tmp - 1];
+					
+					if (providesInterface->tag != pd4j_CONSTANT_CLASS) {
+						strncpy(loader->err, "Malformed class file: Module 'provides' entry class is not a class constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					if (!pd4j_class_constant_utf8(class, providesInterface->data.indices.a, &entry->interface)) {
+						strncpy(loader->err, "Malformed class file: Module 'provides' entry class name does not point to a UTF-8 constant", 511);
+						loader->hasErr = true;
+						pd4j_class_destroy_attributes(class, i + 1);
+						return false;
+					}
+					
+					tmp = *(data16++);
+					tmp = REVERSE16(tmp);
+					
+					if (tmp > 0) {
+						entry->implementorEntries = pd4j_malloc(tmp * sizeof(uint8_t *));
+						
+						if (entry->implementorEntries == NULL) {
+							pd4j_class_destroy_attributes(class, i + 1);
+							strncpy(loader->err, "Unable to allocate module 'provides with' entries: Out of memory", 511);
+							loader->hasErr = true;
+							return false;
+						}
+						
+						entry->numImplementorEntries = tmp;
+						
+						for (uint16_t k = 0; k < entry->numImplementorEntries; k++) {
+							tmp = *(data16++);
+							tmp = REVERSE16(tmp);
+							
+							if (tmp > class->numConstants) {
+								strncpy(loader->err, "Malformed class file: Module 'provides with' entry class is not a valid constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							pd4j_class_constant *opensToModule = &class->constantPool[tmp - 1];
+							
+							if (opensToModule->tag != pd4j_CONSTANT_CLASS) {
+								strncpy(loader->err, "Malformed class file: Module 'provides with' entry class is not a class constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+							
+							if (!pd4j_class_constant_utf8(class, opensToModule->data.indices.a, &entry->implementorEntries[k])) {
+								strncpy(loader->err, "Malformed class file: Module 'provides with' entry class name does not point to a UTF-8 constant", 511);
+								loader->hasErr = true;
+								pd4j_class_destroy_attributes(class, i + 1);
+								return false;
+							}
+						}
+					}
+				}
+			}
+			
+			class->moduleAttribute = attr;
 		}
 		else {
 			uint8_t data[attr->dataLength];
@@ -1619,7 +2102,8 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 	if (!pd4j_file_exists((const char *)classpathEntry)) {
 		pd->system->realloc(classpathEntry, 0);
 		
-		pd->system->formatString(&classpathEntry, "java.base.jar/%s.class", path);
+		// todo: currently the classpath is hardcoded -- this should probably change
+		pd->system->formatString(&classpathEntry, "java.base.jmod/%s.class", path);
 		if (!pd4j_file_exists((const char *)classpathEntry)) {
 			pd->system->realloc(classpathEntry, 0);
 			
@@ -1665,6 +2149,7 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 	
 	ref->name = className;
 	ref->definingLoader = loader;
+	ref->runtimeModule = NULL;
 	ref->type = pd4j_CLASS_CLASS;
 	ref->data.class = class;
 	ref->constant2Reference = NULL;
@@ -1674,6 +2159,8 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 	class->numMethods = 0;
 	class->numAttributes = 0;
 	class->numRecordComponents = 0;
+	class->moduleAttribute = NULL;
+	class->sourceFile = NULL;
 	
 	if (!pd4j_class_loader_read_header(loader, class)) {
 		pd4j_class_destroy(class);
@@ -1840,6 +2327,11 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 				return NULL;
 			}
 		}
+	}
+	
+	// todo: set ref->runtimeModule for all classes within the module
+	if (class->moduleAttribute != NULL) {
+		ref->runtimeModule = class->moduleAttribute->parsedData.module;
 	}
 	
 	pd4j_list_pop(loader->loadingClasses);

@@ -103,6 +103,8 @@ struct pd4j_thread_stack_entry {
 typedef struct pd4j_thread pd4j_thread;
 
 pd4j_thread *pd4j_thread_new(uint8_t *name);
+pd4j_thread_reference *pd4j_thread_current_class(pd4j_thread *thread);
+
 void pd4j_thread_destroy(pd4j_thread *thread);
 
 void pd4j_thread_reference_destroy(pd4j_thread_reference *thRef);

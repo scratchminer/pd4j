@@ -3072,6 +3072,7 @@ extern "C" {
 #define MZ_FFLUSH pd->file->flush
 #define MZ_DELETE_FILE(f) pd->file->unlink(f, 0)
 
+#undef EOF
 #define EOF 0
 
 #elif defined(_MSC_VER) || defined(__MINGW64__)

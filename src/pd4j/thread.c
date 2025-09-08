@@ -72,6 +72,11 @@ pd4j_thread *pd4j_thread_new(uint8_t *name) {
 	return thread;
 }
 
+pd4j_thread_reference *pd4j_thread_current_class(pd4j_thread *thread) {
+	pd4j_thread_frame *topFrame = thread->jvmStack->array[thread->jvmStack->size - 1];
+	return topFrame->currentClass;
+}
+
 void pd4j_thread_destroy(pd4j_thread *thread) {
 	// todo
 	
@@ -361,6 +366,10 @@ void pd4j_thread_arg_push(pd4j_thread *thread, pd4j_thread_stack_entry *value) {
 }
 
 pd4j_thread_stack_entry *pd4j_thread_arg_pop(pd4j_thread *thread) {
+	if (thread->argStack->size == 0) {
+		return NULL;
+	}
+	
 	pd4j_thread_stack_entry *valueCopy = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
 	memcpy(valueCopy, pd4j_list_pop(thread->argStack), sizeof(pd4j_thread_stack_entry));
 	

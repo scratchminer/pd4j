@@ -34,6 +34,7 @@ set(PD4J_SRCS
 	src/pd4j/list.c
 	src/pd4j/lua_glue.c
 	src/pd4j/memory.c
+	src/pd4j/module.c
 	src/pd4j/resolve.c
 	src/pd4j/thread.c
 	src/pd4j/utf8.c
