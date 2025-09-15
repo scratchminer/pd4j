@@ -78,18 +78,20 @@ size_t pd4j_descriptor_from_method_reference(uint8_t **descriptor, pd4j_thread_r
 		return 0;
 	}
 	
+	size_t numToWrite = length - 1;
 	uint8_t *descriptorPtr = *descriptor;
 	strcpy((char *)descriptorPtr, "(");
 	
 	for (uint32_t i = 0; i < thVar->data.method.argumentDescriptors->size; i++) {
 		char *classDescriptorString = (char *)(((pd4j_thread_reference *)thVar->data.method.argumentDescriptors->array[i])->data.class.loaded->name);
-		strncat((char *)descriptorPtr, classDescriptorString, strlen(classDescriptorString) + 1);
+		strncat((char *)descriptorPtr, classDescriptorString, numToWrite);
+		numToWrite -= strlen(classDescriptorString);
 	}
 	
 	strcat((char *)descriptorPtr, ")");
 	
 	char *returnTypeDescriptorString = (char *)(returnTypeDescriptor->data.class.loaded->name);
-	strncat((char *)descriptorPtr, returnTypeDescriptorString, strlen(returnTypeDescriptorString) + 1);
+	strncat((char *)descriptorPtr, returnTypeDescriptorString, numToWrite);
 	
 	return length;
 }

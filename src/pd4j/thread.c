@@ -8,6 +8,7 @@
 #include "descriptor.h"
 #include "list.h"
 #include "memory.h"
+#include "resolve.h"
 #include "thread.h"
 #include "utf8.h"
 
@@ -21,11 +22,7 @@ typedef struct {
 	uint16_t operandStackSize;
 	pd4j_thread_stack_entry *operandStack;
 	
-	uint16_t numConstants;
-	pd4j_thread_variable *constantPool;
-	
-	pd4j_thread_reference *currentClass;
-	pd4j_class_property *currentMethod;
+	pd4j_thread_reference *currentMethod;
 	
 	// when true and the frame is popped, this will push the return value to the argStack instead of the operandStack of the previous frame
 	bool wasInternalCall;
@@ -45,7 +42,17 @@ struct pd4j_thread {
 	
 	// used only for internal JVM calls; components should be pd4j_thread_stack_entry *
 	pd4j_list *argStack;
+	
+	pd4j_thread_reference *throwable;
 };
+
+static void pd4j_frame_pop(pd4j_thread *thread) {
+	pd4j_thread_frame *frame = pd4j_list_pop(thread->jvmStack);
+	
+	pd4j_free(frame->locals, frame->numLocals * sizeof(pd4j_thread_variable));
+	pd4j_free(frame->operandStack, frame->operandStackSize * sizeof(pd4j_thread_stack_entry));
+	pd4j_free(frame, sizeof(pd4j_thread_frame));
+}
 
 pd4j_thread *pd4j_thread_new(uint8_t *name) {
 	pd4j_thread *thread = pd4j_malloc(sizeof(pd4j_thread));
@@ -73,12 +80,28 @@ pd4j_thread *pd4j_thread_new(uint8_t *name) {
 }
 
 pd4j_thread_reference *pd4j_thread_current_class(pd4j_thread *thread) {
-	pd4j_thread_frame *topFrame = thread->jvmStack->array[thread->jvmStack->size - 1];
-	return topFrame->currentClass;
+	pd4j_thread_frame *frame = thread->jvmStack->array[thread->jvmStack->size - 1];
+	return frame->currentMethod->data.method.class;
 }
 
 void pd4j_thread_destroy(pd4j_thread *thread) {
-	// todo
+	if (thread->throwable != NULL) {
+		pd4j_free(thread->throwable, sizeof(pd4j_thread_reference));
+	}
+	
+	for (uint32_t i = 0; i < thread->argStack->size; i++) {
+		pd4j_thread_stack_entry *value = pd4j_thread_arg_pop(thread);
+		
+		if (value->tag == pd4j_VARIABLE_REFERENCE && value->data.referenceValue != NULL) {
+			pd4j_thread_reference_destroy(value->data.referenceValue);
+		}
+	
+		pd4j_free(value, sizeof(pd4j_thread_stack_entry));
+	}
+	
+	for (uint32_t i = 0; i < thread->jvmStack->size; i++) {
+		pd4j_frame_pop(thread);
+	}
 	
 	pd4j_list_destroy(thread->argStack);
 	pd4j_list_destroy(thread->jvmStack);
@@ -201,7 +224,6 @@ bool pd4j_thread_initialize_class(pd4j_thread *thread, pd4j_thread_reference *th
 							pd4j_free(staticFieldRef->data.referenceValue, sizeof(pd4j_thread_reference));
 							pd4j_class_constant_utf8(class, idx, &stringData);
 							staticFieldRef->data.referenceValue = pd4j_class_get_resolved_string_reference(classRef, thread, stringData);
-							
 							break;
 						}
 						default:
@@ -370,30 +392,212 @@ pd4j_thread_stack_entry *pd4j_thread_arg_pop(pd4j_thread *thread) {
 		return NULL;
 	}
 	
-	pd4j_thread_stack_entry *valueCopy = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
-	memcpy(valueCopy, pd4j_list_pop(thread->argStack), sizeof(pd4j_thread_stack_entry));
-	
-	return valueCopy;
+	return pd4j_list_pop(thread->argStack);
 }
 
+// todo
 bool pd4j_thread_invoke_static_method(pd4j_thread *thread, pd4j_thread_reference *methodRef) {
-	// todo
 	return false;
 }
 
+// todo
 bool pd4j_thread_invoke_instance_method(pd4j_thread *thread, pd4j_thread_reference *instance, pd4j_thread_reference *methodRef) {
-	// todo
 	return false;
 }
 
+// todo
 bool pd4j_thread_execute(pd4j_thread *thread) {
-	// todo
+	pd4j_thread_frame *frame = thread->jvmStack->array[thread->jvmStack->size - 1];
+	
+	switch (*(thread->pc++)) {
+		case 0x10: {
+			// bipush
+			pd4j_thread_stack_entry *top = &frame->operandStack[frame->sp++];
+			
+			top->tag = pd4j_VARIABLE_INT;
+			top->name = NULL;
+			top->data.intValue = (int32_t)((int8_t)(*(thread->pc++)));
+			return true;
+		}
+		case 0x11: {
+			// sipush
+			pd4j_thread_stack_entry *top = &frame->operandStack[frame->sp++];
+			uint16_t temp = *(thread->pc++);
+			temp = (temp << 8) | *(thread->pc++);
+			
+			top->tag = pd4j_VARIABLE_INT;
+			top->name = NULL;
+			top->data.intValue = (int32_t)((int16_t)temp);
+			return true;
+		}
+		case 0x12: {
+			// ldc
+			pd4j_thread_stack_entry *top = &frame->operandStack[frame->sp++];
+			uint16_t temp = *(thread->pc++);
+			
+			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
+			pd4j_thread_stack_entry *constant = &currentClass->data.class.constantPool[temp];
+			
+			if (constant->tag == pd4j_VARIABLE_NONE) {
+				pd4j_class_constant *staticConstant = &currentClass->data.class.loaded->data.class->constantPool[temp];
+				
+				switch (staticConstant->tag) {
+					case pd4j_CONSTANT_INT: {
+						constant->tag = pd4j_VARIABLE_INT;
+						constant->name = NULL;
+						constant->data.intValue = staticConstant->data.intValue;
+						break;
+					}
+					case pd4j_CONSTANT_FLOAT: {
+						constant->tag = pd4j_VARIABLE_FLOAT;
+						constant->name = NULL;
+						constant->data.floatValue = staticConstant->data.floatValue;
+						break;
+					}
+					case pd4j_CONSTANT_CLASS: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_class_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_STRING: {
+						uint8_t *stringData;
+						if (!pd4j_class_constant_utf8(currentClass->data.class.loaded->data.class, temp, &stringData)) {
+							return false;
+						}
+						constant->tag = pd4j_VARIABLE_REFERENCE;
+						constant->data.referenceValue = pd4j_class_get_resolved_string_reference(currentClass->data.class.loaded, thread, stringData);
+						break;
+					}
+					case pd4j_CONSTANT_METHODHANDLE: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_method_handle_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_METHODTYPE: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_method_type_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_DYNAMIC: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_dynamic_reference(&entry, thread, staticConstant, currentClass)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					default: {
+						return false;
+					}
+				}
+			}
+			
+			memcpy(top, constant, sizeof(pd4j_thread_stack_entry));
+			return true;
+		}
+		case 0x13: {
+			// ldc_w
+			pd4j_thread_stack_entry *top = &frame->operandStack[frame->sp++];
+			uint16_t temp = *(thread->pc++);
+			temp = (temp << 8) | *(thread->pc++);
+			
+			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
+			pd4j_thread_stack_entry *constant = &currentClass->data.class.constantPool[temp];
+			
+			if (constant->tag == pd4j_VARIABLE_NONE) {
+				pd4j_class_constant *staticConstant = &currentClass->data.class.loaded->data.class->constantPool[temp];
+				
+				switch (staticConstant->tag) {
+					case pd4j_CONSTANT_INT: {
+						constant->tag = pd4j_VARIABLE_INT;
+						constant->name = NULL;
+						constant->data.intValue = staticConstant->data.intValue;
+						break;
+					}
+					case pd4j_CONSTANT_FLOAT: {
+						constant->tag = pd4j_VARIABLE_FLOAT;
+						constant->name = NULL;
+						constant->data.floatValue = staticConstant->data.floatValue;
+						break;
+					}
+					case pd4j_CONSTANT_CLASS: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_class_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_STRING: {
+						uint8_t *stringData;
+						if (!pd4j_class_constant_utf8(currentClass->data.class.loaded->data.class, temp, &stringData)) {
+							return false;
+						}
+						constant->tag = pd4j_VARIABLE_REFERENCE;
+						constant->data.referenceValue = pd4j_class_get_resolved_string_reference(currentClass->data.class.loaded, thread, stringData);
+						break;
+					}
+					case pd4j_CONSTANT_METHODHANDLE: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_method_handle_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_METHODTYPE: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_method_type_reference(&entry, thread, staticConstant, currentClass->data.class.loaded)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					case pd4j_CONSTANT_DYNAMIC: {
+						pd4j_thread_stack_entry *entry;
+						if (!pd4j_resolve_dynamic_reference(&entry, thread, staticConstant, currentClass)) {
+							return false;
+						}
+						memcpy(constant, entry, sizeof(pd4j_thread_stack_entry));
+						pd4j_free(entry, sizeof(pd4j_thread_stack_entry));
+						break;
+					}
+					default: {
+						return false;
+					}
+				}
+			}
+			
+			memcpy(top, constant, sizeof(pd4j_thread_stack_entry));
+			return true;
+		}
+		default: {
+			return false;
+		}
+	}
+	
 	return false;
 }
 
+// todo
 void pd4j_thread_throw_class_with_message(pd4j_thread *thread, const char *class, char *message) {
 	(void)thread;
 	
-	// todo
 	pd->system->error("%s: %s", class, message);
 }

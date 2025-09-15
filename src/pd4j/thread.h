@@ -37,6 +37,8 @@ typedef struct pd4j_thread_reference {
 		struct {
 			uint8_t *name;
 			pd4j_class_reference *loaded;
+			uint16_t numConstants;
+			pd4j_thread_stack_entry *constantPool;
 			uint16_t numStaticFields;
 			pd4j_thread_stack_entry *staticFields;
 		} class;

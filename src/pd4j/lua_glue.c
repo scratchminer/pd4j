@@ -3,6 +3,7 @@
 
 #include "api_ptr.h"
 #include "class.h"
+#include "class_loader.h"
 #include "lua_glue.h"
 #include "memory.h"
 #include "thread.h"
@@ -80,6 +81,194 @@ static int pd4j_lua_glue_thread_findClass(lua_State *L) {
 		
 		pd->lua->pushObject(value, "pd4j.value", 0);
 		return 1;
+	}
+}
+
+static int pd4j_lua_glue_thread_getSuperclassOf(lua_State *L) {
+	int argc = pd->lua->getArgCount();
+	
+	if (argc == 0) {
+		pd->system->error("argument #1 to pd4j.thread:getSuperclassOf() should be a pd4j.thread");
+		return 0;
+	}
+	
+	pd4j_thread *thread = pd->lua->getArgObject(1, "pd4j.thread", NULL);
+	
+	if (thread == NULL) {
+		pd->system->error("argument #1 to pd4j.thread:getSuperclassOf() should be a pd4j.thread");
+		return 0;
+	}
+	
+	const char *luaObjName;
+	pd4j_thread_stack_entry *class;
+	LuaUDObject *classUd;
+	
+	if (argc < 2 || pd->lua->getArgType(2, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
+		pd->system->error("argument #2 to pd4j.thread:getSuperclassOf() should be a pd4j.value representing a Class object");
+		return 0;
+	}
+	else {
+		class = pd->lua->getArgObject(2, "pd4j.value", &classUd);
+		
+		if (class->tag != pd4j_VARIABLE_REFERENCE || class->data.referenceValue->kind != pd4j_REF_CLASS) {
+			pd->system->error("argument #2 to pd4j.thread:getSuperclassOf() should be a pd4j.value representing a Class object");
+			return 0;
+		}
+	}
+	
+	pd4j_class_reference *classRef = class->data.referenceValue->data.class.loaded;
+	
+	if (classRef->type == pd4j_CLASS_CLASS) {
+		uint8_t *superClass = classRef->data.class->superClass;
+		
+		if (superClass == NULL) {
+			pd->lua->pushNil();
+		}
+		else {
+			pd4j_thread_reference *currentClass = pd4j_thread_current_class(thread);
+			pd4j_thread_reference *thRef = pd4j_class_get_resolved_class_reference(currentClass->data.class.loaded, thread, superClass);
+			
+			pd4j_thread_stack_entry *value = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
+			if (value == NULL) {
+				pd->lua->pushNil();
+				return 1;
+			}
+			
+			value->tag = pd4j_VARIABLE_REFERENCE;
+			value->name = (uint8_t *)"(superclass obtained from Lua code)";
+			value->data.referenceValue = thRef;
+			
+			pd->lua->pushObject(value, "pd4j.value", 0);
+		}
+	}
+	else {
+		pd->lua->pushNil();
+	}
+	
+	return 1;
+}
+
+static int pd4j_lua_glue_thread_canCast(lua_State *L) {
+	int argc = pd->lua->getArgCount();
+	
+	if (argc == 0) {
+		pd->system->error("argument #1 to pd4j.thread:canCast() should be a pd4j.thread");
+		return 0;
+	}
+	
+	pd4j_thread *thread = pd->lua->getArgObject(1, "pd4j.thread", NULL);
+	
+	if (thread == NULL) {
+		pd->system->error("argument #1 to pd4j.thread:canCast() should be a pd4j.thread");
+		return 0;
+	}
+	
+	const char *luaObjName;
+	pd4j_class_reference *class1Ref;
+	pd4j_class_reference *class2Ref;
+	
+	if (argc < 2 || pd->lua->getArgType(2, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
+		pd->system->error("argument #2 to pd4j.thread:canCast() should be a pd4j.value representing a Class object");
+		return 0;
+	}
+	else {
+		pd4j_thread_stack_entry *class1 = pd->lua->getArgObject(2, "pd4j.value", NULL);
+		
+		if (class1->tag != pd4j_VARIABLE_REFERENCE || class1->data.referenceValue->kind != pd4j_REF_CLASS) {
+			pd->system->error("argument #2 to pd4j.thread:canCast() should be a pd4j.value representing a Class object");
+			return 0;
+		}
+		
+		class1Ref = class1->data.referenceValue->data.class.loaded;
+	}
+	
+	if (argc < 3 || pd->lua->getArgType(3, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
+		pd->system->error("argument #2 to pd4j.thread:canCast() should be a pd4j.value representing a Class object");
+		return 0;
+	}
+	else {
+		pd4j_thread_stack_entry *class2 = pd->lua->getArgObject(3, "pd4j.value", NULL);
+		
+		if (class2->tag != pd4j_VARIABLE_REFERENCE || class2->data.referenceValue->kind != pd4j_REF_CLASS) {
+			pd->system->error("argument #2 to pd4j.thread:canCast() should be a pd4j.value representing a Class object");
+			return 0;
+		}
+		
+		class2Ref = class2->data.referenceValue->data.class.loaded;
+	}
+	
+	pd->lua->pushBool(pd4j_class_can_cast(class1Ref, class2Ref));
+	return 1;
+}
+
+static int pd4j_lua_glue_thread_getClassOf(lua_State *L) {
+	int argc = pd->lua->getArgCount();
+	
+	if (argc == 0) {
+		pd->system->error("argument #1 to pd4j.thread:getClassOf() should be a pd4j.value");
+		return 0;
+	}
+	
+	const char *luaObjName;
+	
+	if (pd->lua->getArgType(1, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.thread") != 0) {
+		pd->system->error("argument #1 to pd4j.thread:getClassOf() should be a pd4j.thread");
+		return 0;
+	}
+	else {
+		pd4j_thread *thread = pd->lua->getArgObject(1, "pd4j.thread", NULL);
+		
+		if (argc < 2 || pd->lua->getArgType(2, &luaObjName) != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
+			pd->system->error("argument #2 to pd4j.thread:getClassOf() should be a pd4j.value");
+			return 0;
+		}
+		
+		pd4j_thread_stack_entry *value = pd->lua->getArgObject(2, "pd4j.value", NULL);
+		
+		if (value->tag == pd4j_VARIABLE_REFERENCE) {
+			pd4j_thread_reference *thRef = value->data.referenceValue;
+			
+			if (thRef == NULL) {
+				pd->lua->pushNil();
+				return 1;
+			}
+			else if (!thRef->resolved) {
+				pd->lua->pushNil();
+				return 1;
+			}
+			else {
+				pd4j_thread_reference *classRef;
+				
+				switch (thRef->kind) {
+					case pd4j_REF_CLASS:
+						classRef = pd4j_class_get_resolved_class_reference(pd4j_thread_current_class(thread)->data.class.loaded, thread, (uint8_t *)"java/lang/Class");
+						break;
+					case pd4j_REF_INSTANCE:
+						classRef = thRef->data.instance.class;
+						break;
+					case pd4j_REF_NULL:
+					case pd4j_REF_FIELD:
+					case pd4j_REF_CLASS_METHOD:
+					case pd4j_REF_INTERFACE_METHOD:
+					default:
+						pd->lua->pushNil();
+						return 1;
+				}
+				
+				pd4j_thread_stack_entry *class = pd4j_malloc(sizeof(pd4j_thread_stack_entry));
+				
+				class->tag = pd4j_VARIABLE_REFERENCE;
+				class->name = (uint8_t *)"(class obtained from Lua)";
+				class->data.referenceValue = classRef;
+			
+				pd->lua->pushObject(class, "pd4j.value", 0);
+				return 1;
+			}
+		}
+		else {
+			pd->lua->pushNil();
+			return 1;
+		}
 	}
 }
 
@@ -398,7 +587,7 @@ static int pd4j_lua_glue_value_getValue(lua_State *L) {
 	enum LuaType argType = pd->lua->getArgType(1, &luaObjName);
 	
 	if (argType != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
-		pd->system->error("argument #1 to pd4j.value:getType() should be a pd4j.value");
+		pd->system->error("argument #1 to pd4j.value:getValue() should be a pd4j.value");
 		return 0;
 	}
 	else {
@@ -462,33 +651,27 @@ static int pd4j_lua_glue_value_gc(lua_State *L) {
 		return 0;
 	}
 	
-	const char *luaObjName;
-	enum LuaType argType = pd->lua->getArgType(1, &luaObjName);
+	LuaUDObject *valueUd;
+	pd4j_thread_stack_entry *value = pd->lua->getArgObject(1, "pd4j.value", &valueUd);
 	
-	if (argType != kTypeObject || strcmp(luaObjName, "pd4j.value") != 0) {
-		pd->system->error("argument #1 to pd4j.value:__gc() should be a pd4j.value");
-		return 0;
-	}
-	else {
-		LuaUDObject *valueUd;
-		pd4j_thread_stack_entry *value = pd->lua->getArgObject(1, "pd4j.value", &valueUd);
+	if (value->tag == pd4j_VARIABLE_REFERENCE && value->data.referenceValue->kind == pd4j_REF_INSTANCE) {
+		pd->lua->getUserValue(valueUd, 1);
 		
-		if (value->tag == pd4j_VARIABLE_REFERENCE && value->data.referenceValue->kind == pd4j_REF_INSTANCE) {
-			pd->lua->getUserValue(valueUd, 1);
-			
-			size_t pointerLen;
-			LuaUDObject *classUd = *(LuaUDObject **)(pd->lua->getArgBytes(-1, &pointerLen));
-			pd->lua->releaseObject(classUd);
-		}
-		
-		return 0;
+		size_t pointerLen;
+		LuaUDObject *classUd = *(LuaUDObject **)(pd->lua->getArgBytes(-1, &pointerLen));
+		pd->lua->releaseObject(classUd);
 	}
+	
+	return 0;
 }
 
 static const lua_reg threadFunctions[] = {
 	{"new", &pd4j_lua_glue_thread_new},
 	{"findClass", &pd4j_lua_glue_thread_findClass},
+	{"getSuperclassOf", &pd4j_lua_glue_thread_getSuperclassOf},
+	{"canCast", &pd4j_lua_glue_thread_canCast},
 	{"newInstanceOf", &pd4j_lua_glue_thread_newInstanceOf},
+	{"getClassOf", &pd4j_lua_glue_thread_getClassOf},
 	{"push", &pd4j_lua_glue_thread_push},
 	{"pop", &pd4j_lua_glue_thread_pop},
 	{"invokeStaticMethod", &pd4j_lua_glue_thread_invokeStaticMethod},

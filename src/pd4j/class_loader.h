@@ -11,6 +11,8 @@
 
 typedef struct pd4j_class_loader pd4j_class_loader;
 
+pd4j_class_loader *pd4j_class_loader_get_boot(void);
+
 pd4j_class_loader *pd4j_class_loader_new(pd4j_class_loader *parent);
 void pd4j_class_loader_destroy(pd4j_class_loader *loader);
 

@@ -57,3 +57,13 @@ bool pd4j_module_can_access_class(pd4j_class_reference *target, pd4j_module *mod
 	
 	return false;
 }
+
+// todo
+bool pd4j_module_can_access_service(uint8_t *targetInterface, pd4j_module *moduleRef) {
+	return false;
+}
+
+// todo
+uint8_t **pd4j_module_get_providers(uint8_t *targetInterface, pd4j_module *moduleRef, uint16_t *numProviders) {
+	return NULL;
+}

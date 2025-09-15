@@ -35,7 +35,21 @@ struct pd4j_class_loader {
 	struct pd4j_class_loader *parent;
 };
 
+static pd4j_class_loader *bootClassLoader = NULL;
+
+pd4j_class_loader *pd4j_class_loader_get_boot(void) {
+	if (bootClassLoader == NULL) {
+		bootClassLoader = pd4j_class_loader_new(NULL);
+	}
+	
+	return bootClassLoader;
+}
+
 pd4j_class_loader *pd4j_class_loader_new(pd4j_class_loader *parent) {
+	if (parent == NULL && bootClassLoader != NULL) {
+		return NULL;
+	}
+	
 	pd4j_class_loader *ret = pd4j_malloc(sizeof(pd4j_class_loader));
 	if (ret != NULL) {
 		ret->fh = NULL;
@@ -2098,11 +2112,11 @@ pd4j_class_reference *pd4j_class_loader_load(pd4j_class_loader *loader, pd4j_thr
 	
 	char *classpathEntry;
 	
+	// todo: currently the classpath is hardcoded -- this should probably change
 	pd->system->formatString(&classpathEntry, "%s.class", path);
 	if (!pd4j_file_exists((const char *)classpathEntry)) {
 		pd->system->realloc(classpathEntry, 0);
 		
-		// todo: currently the classpath is hardcoded -- this should probably change
 		pd->system->formatString(&classpathEntry, "java.base.jmod/%s.class", path);
 		if (!pd4j_file_exists((const char *)classpathEntry)) {
 			pd->system->realloc(classpathEntry, 0);

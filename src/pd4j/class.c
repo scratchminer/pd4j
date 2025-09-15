@@ -8,6 +8,7 @@
 #include "memory.h"
 #include "module.h"
 #include "resolve.h"
+#include "thread.h"
 #include "utf8.h"
 
 static pd4j_class_reference byteClassRef = {
@@ -531,6 +532,19 @@ pd4j_thread_reference *pd4j_class_get_resolved_class_reference(pd4j_class_refere
 	thRef->monitor.owner = NULL;
 	thRef->monitor.entryCount = 0;
 	thRef->resolved = true;
+	
+	thRef->data.class.numConstants = classRef->data.class->numConstants;
+	thRef->data.class.constantPool = pd4j_malloc(thRef->data.class.numConstants * sizeof(pd4j_thread_stack_entry));
+	
+	if (thRef->data.class.constantPool == NULL) {
+		pd4j_thread_throw_class_with_message(thread, "java/lang/OutOfMemoryError", "Unable to allocate run-time constant pool for class resolution: Out of memory");
+		pd4j_free(thRef, sizeof(pd4j_thread_reference));
+		return NULL;
+	}
+	
+	for (uint16_t i = 0; i < thRef->data.class.numConstants; i++) {
+		thRef->data.class.constantPool[i].tag = pd4j_VARIABLE_NONE;
+	}
 	
 	pd4j_class_resolved_reference *resolved = pd4j_malloc(sizeof(pd4j_class_resolved_reference));
 	
