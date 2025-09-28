@@ -593,7 +593,7 @@ pd4j_thread_reference *pd4j_class_get_resolved_string_reference(pd4j_class_refer
 		java += advance;
 	}
 	
-	pd4j_thread_stack_entry *stringData = pd4j_malloc(chars->size * 2 * sizeof(pd4j_thread_stack_entry));
+	pd4j_thread_stack_entry *stringData = pd4j_malloc(chars->size * sizeof(pd4j_thread_stack_entry));
 	
 	for (uint32_t i = 0; i < chars->size; i++) {
 		pd4j_thread_stack_entry charField;
@@ -644,7 +644,7 @@ pd4j_thread_reference *pd4j_class_get_resolved_string_reference(pd4j_class_refer
 	
 	pd4j_thread_invoke_instance_method(thread, thRef, &initRef);
 	
-	pd4j_free(stringData, arrRef->data.instance.numInstanceFields * 2 * sizeof(pd4j_thread_stack_entry));
+	pd4j_free(stringData, arrRef->data.instance.numInstanceFields * sizeof(pd4j_thread_stack_entry));
 	pd4j_free(arrRef, sizeof(pd4j_thread_reference));
 	
 	pd4j_thread_reference internMethodRef;

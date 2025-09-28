@@ -42,9 +42,11 @@ set(PD4J_SRCS
 if(TOOLCHAIN STREQUAL "armgcc")
 	add_executable(${PLAYDATE_GAME_DEVICE} ${SDK}/C_API/buildsupport/setup.c src/main.c 3rdparty/miniz/miniz.c ${PD4J_SRCS})
 	target_include_directories(${PLAYDATE_GAME_DEVICE} PRIVATE 3rdparty/miniz)
+	target_link_libraries(${PLAYDATE_GAME_DEVICE} PRIVATE m)
 else()
 	add_library(${PLAYDATE_GAME_NAME} SHARED src/main.c 3rdparty/miniz/miniz.c 3rdparty/miniz/miniz.c ${PD4J_SRCS})
 	target_include_directories(${PLAYDATE_GAME_NAME} PRIVATE 3rdparty/miniz)
+	target_link_libraries(${PLAYDATE_GAME_NAME} PRIVATE m)
 endif()
 
 include(${SDK}/C_API/buildsupport/playdate_game.cmake)
