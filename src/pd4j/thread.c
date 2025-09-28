@@ -80,7 +80,7 @@ pd4j_thread *pd4j_thread_new(uint8_t *name) {
 		thread->jvmStack = pd4j_list_new(4);
 		thread->argStack = pd4j_list_new(4);
 		
-		thread->currentMonitor = NULL;
+		thread->monitor = NULL;
 	}
 	
 	return thread;
@@ -2011,7 +2011,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 		case 0xac: {
 			// ireturn (special-cased for narrowing conversions)
 			if (thread->monitor != NULL) {
-				else if (--thread->monitor->monitor.entryCount != 0) {
+				if (--thread->monitor->monitor.entryCount != 0) {
 					pd4j_thread_throw_class_with_message(thread, "java/lang/IllegalMonitorStateException", "Structured locking rule 1 violated");
 					return false;
 				}
@@ -2061,7 +2061,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 		case 0xb0: {
 			// lreturn, freturn, dreturn, areturn
 			if (thread->monitor != NULL) {
-				else if (--thread->monitor->monitor.entryCount != 0) {
+				if (--thread->monitor->monitor.entryCount != 0) {
 					pd4j_thread_throw_class_with_message(thread, "java/lang/IllegalMonitorStateException", "Structured locking rule 1 was violated");
 					return false;
 				}
@@ -2088,7 +2088,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 		case 0xb1: {
 			// return
 			if (thread->monitor != NULL) {
-				else if (--thread->monitor->monitor.entryCount != 0) {
+				if (--thread->monitor->monitor.entryCount != 0) {
 					pd4j_thread_throw_class_with_message(thread, "java/lang/IllegalMonitorStateException", "Structured locking rule 1 was violated");
 					return false;
 				}
@@ -2109,15 +2109,15 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
 			pd4j_thread_stack_entry *fieldRef;
 			
-			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.constantPool[temp], currentClass->data.class.loaded)) {
+			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.loaded->data.class->constantPool[temp], currentClass->data.class.loaded)) {
 				return false;
 			}
 			
-			pd4j_thread_reference *fieldClass = fieldRef->data.field.class;
+			pd4j_thread_reference *fieldClass = fieldRef->data.referenceValue->data.field.class;
 			
 			for (uint16_t i = 0; i < fieldClass->data.class.numStaticFields; i++) {
-				if (strncmp((char *)(fieldRef->data.field.name), (char *)(fieldClass->data.class.staticFields[i].name), strlen((char *)(fieldRef->data.field.name))) == 0) {
-					memcpy(top, fieldClass->data.class.staticFields[i], sizeof(pd4j_thread_stack_entry));
+				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldClass->data.class.staticFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
+					memcpy(top, &fieldClass->data.class.staticFields[i], sizeof(pd4j_thread_stack_entry));
 					return true;
 				}
 			}
@@ -2134,14 +2134,14 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
 			pd4j_thread_stack_entry *fieldRef;
 			
-			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.constantPool[temp], currentClass->data.class.loaded)) {
+			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.loaded->data.class->constantPool[temp], currentClass->data.class.loaded)) {
 				return false;
 			}
 			
-			pd4j_thread_reference *fieldClass = fieldRef->data.field.class;
+			pd4j_thread_reference *fieldClass = fieldRef->data.referenceValue->data.field.class;
 			
 			for (uint16_t i = 0; i < fieldClass->data.class.numStaticFields; i++) {
-				if (strncmp((char *)(fieldRef->data.field.name), (char *)(fieldClass->data.class.staticFields[i].name), strlen((char *)(fieldRef->data.field.name))) == 0) {
+				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldClass->data.class.staticFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
 					// todo: check whether the field is final and block access if it is
 					fieldClass->data.class.staticFields[i].tag = top->tag;
 					fieldClass->data.class.staticFields[i].data = top->data;
@@ -2162,7 +2162,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
 			pd4j_thread_stack_entry *fieldRef;
 			
-			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.constantPool[temp], currentClass->data.class.loaded)) {
+			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.loaded->data.class->constantPool[temp], currentClass->data.class.loaded)) {
 				return false;
 			}
 			
@@ -2174,8 +2174,8 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			}
 			
 			for (uint16_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
-				if (strncmp((char *)(fieldRef->data.field.name), (char *)(fieldClass->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.field.name))) == 0) {
-					memcpy(top, fieldClass->data.instance.instanceFields[i], sizeof(pd4j_thread_stack_entry));
+				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldInstance->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
+					memcpy(top, &fieldInstance->data.instance.instanceFields[i], sizeof(pd4j_thread_stack_entry));
 					return true;
 				}
 			}
@@ -2194,7 +2194,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
 			pd4j_thread_stack_entry *fieldRef;
 			
-			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.constantPool[temp], currentClass->data.class.loaded)) {
+			if (!pd4j_resolve_field_reference(&fieldRef, thread, &currentClass->data.class.loaded->data.class->constantPool[temp], currentClass->data.class.loaded)) {
 				return false;
 			}
 			
@@ -2206,10 +2206,10 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			}
 			
 			for (uint16_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
-				if (strncmp((char *)(fieldRef->data.field.name), (char *)(fieldClass->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.field.name))) == 0) {
+				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldInstance->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
 					// todo: check whether the field is final and block access if it is
-					fieldClass->data.instance.instanceFields[i].tag = value->tag;
-					fieldClass->data.instance.instanceFields[i].data = value->data;
+					fieldInstance->data.instance.instanceFields[i].tag = value->tag;
+					fieldInstance->data.instance.instanceFields[i].data = value->data;
 					
 					return true;
 				}
