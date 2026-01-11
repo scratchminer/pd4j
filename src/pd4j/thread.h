@@ -46,6 +46,7 @@ typedef struct pd4j_thread_reference {
 			uint8_t *name;
 			pd4j_thread_reference *descriptor;
 			struct pd4j_thread_reference *class;
+			uint16_t vmindex;
 		} field;
 		struct {
 			uint8_t *name;
@@ -54,6 +55,7 @@ typedef struct pd4j_thread_reference {
 			// components should be pd4j_thread_reference *
 			pd4j_list *argumentDescriptors;
 			struct pd4j_thread_reference *class;
+			uint16_t vmindex;
 		} method;
 		struct {
 			uint32_t numInstanceFields;

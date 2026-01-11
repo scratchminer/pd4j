@@ -476,12 +476,19 @@ bool pd4j_class_can_access_property(pd4j_class_property *target, pd4j_class_refe
 	return pd4j_class_same_package(classRef, targetClass);
 }
 
-void pd4j_class_add_resolved_reference(pd4j_class_reference *ref, pd4j_class_resolved_reference *resolvedReference) {
+bool pd4j_class_add_resolved_reference(pd4j_class_reference *ref, pd4j_class_resolved_reference *resolvedReference) {
 	if (ref->constant2Reference == NULL) {
 		ref->constant2Reference = pd4j_list_new(4);
 	}
 	
+	for (uint32_t i = 0; i < ref->constant2Reference->size; i++) {
+		if (ref->constant2Reference->array[i] == resolvedReference) {
+			return false;
+		}
+	}
+	
 	pd4j_list_add(ref->constant2Reference, resolvedReference);
+	return true;
 }
 
 pd4j_thread_stack_entry *pd4j_class_get_resolved_constant_reference(pd4j_class_reference *ref, pd4j_class_constant *constant) {
@@ -561,8 +568,9 @@ pd4j_thread_reference *pd4j_class_get_resolved_class_reference(pd4j_class_refere
 		pd4j_free(thRef, sizeof(pd4j_thread_reference));
 		return NULL;
 	}
-	
-	pd4j_class_add_resolved_reference(ref, resolved);
+	if (!pd4j_class_add_resolved_reference(ref, resolved)) {
+		pd4j_free(resolved, sizeof(pd4j_class_resolved_reference));
+	}
 	
 	return thRef;
 }

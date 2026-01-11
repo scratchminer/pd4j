@@ -37,9 +37,7 @@ struct pd4j_thread {
 	size_t threadNameLength;
 	
 	uint32_t threadId;
-	
 	uint8_t *pc;
-	uint32_t lineNum;
 	
 	// components should be pd4j_thread_frame *
 	pd4j_list *jvmStack;
@@ -50,6 +48,58 @@ struct pd4j_thread {
 	pd4j_thread_reference *throwable;
 	pd4j_thread_reference *monitor;
 };
+
+static bool pd4j_thread_frame_push(pd4j_thread *thread, pd4j_thread_reference *methodRef) {
+	pd4j_thread_reference *class = methodRef->data.method.class;
+	pd4j_class_property *method = &class->data.class.loaded->data.class->methods[methodRef->data.method.vmindex];
+	
+	// if method is marked as ACC_NATIVE then call JNI
+	if ((method->accessFlags.method & pd4j_METHOD_ACC_NATIVE) != 0) {
+		// todo
+		return true;
+	}
+	for (uint16_t i = 0; i < method->numAttributes; i++) {
+		pd4j_class_attribute *attr = &method->attributes[i];
+		
+		if (strcmp((const char *)attr->name, "Code") == 0) {
+			pd4j_thread_frame *frame = pd4j_malloc(sizeof(pd4j_thread_frame));
+			
+			if (frame != NULL) {
+				frame->numLocals = attr->parsedData.code.maxLocals;
+				frame->locals = pd4j_malloc(frame->numLocals * sizeof(pd4j_thread_variable));
+				
+				if (frame->locals == NULL) {
+					pd4j_thread_throw_class_with_message(thread, "java/lang/OutOfMemoryError", "Unable to allocate local variables for method call: Out of memory");
+					return false;
+				}
+				
+				frame->startPc = attr->parsedData.code.code;
+				
+				frame->sp = 0;
+				frame->operandStackSize = attr->parsedData.code.maxStack;
+				frame->operandStack = pd4j_malloc(frame->operandStackSize * sizeof(pd4j_thread_stack_entry));
+				
+				if (frame->operandStack == NULL) {
+					pd4j_free(frame->locals, frame->numLocals * sizeof(pd4j_thread_variable));
+					pd4j_thread_throw_class_with_message(thread, "java/lang/OutOfMemoryError", "Unable to allocate operand stack for method call: Out of memory");
+					return false;
+				}
+				
+				frame->currentMethod = methodRef;
+				frame->wasInternalCall = false;
+				
+				pd4j_list_push(thread->jvmStack, frame);
+				return true;
+			}
+			
+			pd4j_thread_throw_class_with_message(thread, "java/lang/StackOverflowError", "Unable to allocate new frame for method call: Out of memory");
+			return false;
+		}
+	}
+	
+	pd4j_thread_throw_class_with_message(thread, "java/lang/IncompatibleClassChangeError", "Unable to call method: No bytecode behavior for non-native method");
+	return false;
+}
 
 static void pd4j_thread_frame_pop(pd4j_thread *thread) {
 	pd4j_thread_frame *frame = pd4j_list_pop(thread->jvmStack);
@@ -75,7 +125,6 @@ pd4j_thread *pd4j_thread_new(uint8_t *name) {
 		thread->threadId = newThreadId++;
 		
 		thread->pc = NULL;
-		thread->lineNum = 0;
 		
 		thread->jvmStack = pd4j_list_new(4);
 		thread->argStack = pd4j_list_new(4);
@@ -2140,7 +2189,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			
 			pd4j_thread_reference *fieldClass = fieldRef->data.referenceValue->data.field.class;
 			
-			for (uint16_t i = 0; i < fieldClass->data.class.numStaticFields; i++) {
+			for (uint32_t i = 0; i < fieldClass->data.class.numStaticFields; i++) {
 				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldClass->data.class.staticFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
 					// todo: check whether the field is final and block access if it is
 					fieldClass->data.class.staticFields[i].tag = top->tag;
@@ -2173,7 +2222,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 				return false;
 			}
 			
-			for (uint16_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
+			for (uint32_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
 				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldInstance->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
 					memcpy(top, &fieldInstance->data.instance.instanceFields[i], sizeof(pd4j_thread_stack_entry));
 					return true;
@@ -2187,7 +2236,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 			// putfield
 			pd4j_thread_stack_entry *value = &frame->operandStack[--frame->sp];
 			
-			pd4j_thread_stack_entry *top = &frame->operandStack[frame->sp - 1];
+			pd4j_thread_stack_entry *top = &frame->operandStack[--frame->sp];
 			uint16_t temp = *(thread->pc++);
 			temp = (temp << 8) | *(thread->pc++);
 			
@@ -2205,7 +2254,7 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 				return false;
 			}
 			
-			for (uint16_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
+			for (uint32_t i = 0; i < fieldInstance->data.instance.numInstanceFields; i++) {
 				if (strncmp((char *)(fieldRef->data.referenceValue->data.field.name), (char *)(fieldInstance->data.instance.instanceFields[i].name), strlen((char *)(fieldRef->data.referenceValue->data.field.name))) == 0) {
 					// todo: check whether the field is final and block access if it is
 					fieldInstance->data.instance.instanceFields[i].tag = value->tag;
@@ -2220,6 +2269,208 @@ bool pd4j_thread_execute(pd4j_thread *thread) {
 		}
 		case 0xb6: {
 			// todo: invokevirtual
+			uint16_t temp = *(thread->pc++);
+			temp = (temp << 8) | *(thread->pc++);
+			
+			pd4j_thread_reference *currentClass = frame->currentMethod->data.method.class;
+			pd4j_thread_stack_entry *methodRef;
+			
+			if (!pd4j_resolve_class_method_reference(&methodRef, thread, &currentClass->data.class.loaded->data.class->constantPool[temp], currentClass->data.class.loaded)) {
+				return false;
+			}
+			
+			pd4j_class_property *methodData = NULL;
+			
+			for (uint16_t i = 0; i < methodRef->data.referenceValue->data.method.class->data.class.loaded->data.class->numMethods; i++) {
+				pd4j_class_property *testMethod = &methodRef->data.referenceValue->data.method.class->data.class.loaded->data.class->methods[i];
+				
+				if (strncmp((char *)(testMethod->name), (char *)(methodRef->data.referenceValue->data.method.name), strlen((char *)(methodRef->data.referenceValue->data.method.name))) == 0 && strncmp((char *)(testMethod->descriptor), (char *)(methodRef->data.referenceValue->data.method.descriptor), strlen((char *)(methodRef->data.referenceValue->data.method.descriptor))) == 0) {
+					methodData = testMethod;
+					break;
+				}
+			}
+			
+			if (methodData == NULL) {
+				// this should never happen!
+				return false;
+			}
+			
+			pd4j_thread_stack_entry *top = &frame->operandStack[--frame->sp];
+			
+			if (strcmp((char *)(methodData->descriptor), "([Ljava/lang/Object;)") == 0 && (methodData->accessFlags.method & (pd4j_METHOD_ACC_VARARGS | pd4j_METHOD_ACC_NATIVE)) == (pd4j_METHOD_ACC_VARARGS | pd4j_METHOD_ACC_NATIVE)) {
+				if (strcmp((char *)(methodRef->data.referenceValue->data.method.class->data.class.name), "java/lang/invoke/VarHandle") == 0) {
+					// todo
+				}
+				else if (strcmp((char *)(methodRef->data.referenceValue->data.method.class->data.class.name), "java/lang/invoke/MethodHandle") == 0) {
+					pd4j_thread_stack_entry *methodTypeRef;
+					
+					pd4j_class_constant dummyConstant;
+					dummyConstant.tag = pd4j_CONSTANT_METHODTYPE;
+					dummyConstant.data.indices.a = methodData->descriptorIndex;
+					
+					if (!pd4j_resolve_method_type_reference(&methodTypeRef, thread, &dummyConstant, currentClass->data.class.loaded)) {
+						return false;
+					}
+					
+					pd4j_thread_reference *methodHandle = NULL;
+					pd4j_thread_stack_entry *converted = NULL;
+					
+					if (strcmp((char *)(methodData->name), "invokeExact") == 0) {
+						pd4j_thread_reference *methodTypeRef2 = NULL;
+						
+						for (uint32_t i = 0; i < top->data.referenceValue->data.instance.numInstanceFields; i++) {
+							if (strcmp((char *)(top->data.referenceValue->data.instance.instanceFields[i].name), "type") == 0) {
+								methodTypeRef2 = top->data.referenceValue->data.instance.instanceFields[i].data.referenceValue;
+								break;
+							}
+						}
+						
+						if (methodTypeRef->data.referenceValue != methodTypeRef2) {
+							pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+							
+							pd4j_thread_throw_class_with_message(thread, "java/lang/invoke/WrongMethodTypeException", "Cannot invoke method handle because of type mismatch");
+							return false;
+						}
+						
+						methodHandle = top->data.referenceValue;
+					}
+					else if (strcmp((char *)(methodData->name), "invoke") == 0) {
+						pd4j_thread_reference *methodHandleClass = pd4j_class_get_resolved_class_reference(currentClass->data.class.loaded, thread, (uint8_t *)"java/lang/invoke/MethodHandle");
+						
+						if (methodHandleClass == NULL) {
+							pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+							return false;
+						}
+						
+						pd4j_thread_reference asTypeMethod;
+						asTypeMethod.kind = pd4j_REF_CLASS_METHOD;
+						asTypeMethod.data.method.name = (uint8_t *)"invoke";
+						asTypeMethod.data.method.descriptor = methodData->descriptor;
+						asTypeMethod.data.method.class = methodHandleClass;
+						
+						asTypeMethod.data.method.vmindex = -1;
+						
+						for (uint32_t i = 0; i < methodHandleClass->data.class.loaded->data.class->numMethods; i++) {
+							pd4j_class_property *method = &methodHandleClass->data.class.loaded->data.class->methods[i];
+		
+							if (strcmp((char *)(method->name), "asType") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;") == 0) {
+								asTypeMethod.data.method.vmindex = i;
+								break;
+							}
+						}
+						
+						if (asTypeMethod.data.method.vmindex < 0) {
+							pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+							return false;
+						}
+						
+						asTypeMethod.monitor.owner = NULL;
+						asTypeMethod.monitor.entryCount = 0;
+						
+						pd4j_thread_arg_push(thread, methodTypeRef);
+						pd4j_thread_invoke_instance_method(thread, methodHandle, &asTypeMethod);
+						
+						if (thread->throwable != NULL) {
+							pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+							return false;
+						}
+						
+						converted = pd4j_thread_arg_pop(thread);
+						methodHandle = converted->data.referenceValue;
+					}
+					else {
+						pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+						
+						// this should never happen!
+						return false;
+					}
+					
+					pd4j_free(methodTypeRef, sizeof(pd4j_thread_stack_entry));
+					
+					pd4j_thread_reference *lambdaForm = NULL;
+					pd4j_thread_reference *memberName = NULL;
+					pd4j_thread_reference *resolvedMethodName = NULL;
+					
+					pd4j_thread_reference *vmholder = NULL;
+					int32_t vmindex = -1;
+					
+					for (uint32_t i = 0; i < methodHandle->data.instance.numInstanceFields; i++) {
+						if (strcmp((char *)(methodHandle->data.instance.instanceFields[i].name), "form") == 0) {
+							lambdaForm = methodHandle->data.instance.instanceFields[i].data.referenceValue;
+							
+							for (uint32_t i = 0; i < lambdaForm->data.instance.numInstanceFields; i++) {
+								if (strcmp((char *)(lambdaForm->data.instance.instanceFields[i].name), "vmentry") == 0) {
+									memberName = lambdaForm->data.instance.instanceFields[i].data.referenceValue;
+									
+									for (uint32_t i = 0; i < memberName->data.instance.numInstanceFields; i++) {
+										if (strcmp((char *)(memberName->data.instance.instanceFields[i].name), "method") == 0) {
+											resolvedMethodName = memberName->data.instance.instanceFields[i].data.referenceValue;
+										}
+										else if (strcmp((char *)(memberName->data.instance.instanceFields[i].name), "vmindex") == 0) {
+											vmindex = memberName->data.instance.instanceFields[i].data.intValue;
+										}
+										
+										if (resolvedMethodName != NULL && vmindex >= 0) {
+											for (uint32_t i = 0; i < resolvedMethodName->data.instance.numInstanceFields; i++) {
+												if (strcmp((char *)(resolvedMethodName->data.instance.instanceFields[i].name), "vmholder") == 0) {
+													vmholder = resolvedMethodName->data.instance.instanceFields[i].data.referenceValue;
+													break;
+												}
+											}
+											
+											break;
+										}
+									}
+									
+									break;
+								}
+							}
+							
+							break;
+						}
+					}
+					
+					if (converted != NULL) {
+						pd4j_free(converted, sizeof(pd4j_thread_stack_entry));
+					}
+					
+					pd4j_thread_reference actualMethodRef;
+					
+					// todo: fill in the actual method reference
+					actualMethodRef.resolved = true;
+					actualMethodRef.kind = pd4j_REF_CLASS_METHOD;
+					
+					actualMethodRef.data.method.name = methodData->name;
+					actualMethodRef.data.method.descriptor = methodData->descriptor;
+					
+					pd4j_descriptor_parse_method(methodData->descriptor, currentClass->data.class.loaded, thread, &actualMethodRef);
+					
+					actualMethodRef.data.method.class = vmholder;
+					actualMethodRef.data.method.vmindex = vmindex;
+					
+					actualMethodRef.monitor.owner = NULL;
+					actualMethodRef.monitor.entryCount = 0;
+					
+					pd4j_thread_frame_push(thread, &actualMethodRef);
+					thread->pc = ((pd4j_thread_frame *)(thread->jvmStack->array[thread->jvmStack->size - 1]))->startPc;
+					
+					return true;
+				}
+			}
+			
+			for (uint32_t i = 0; i < methodRef->data.referenceValue->data.method.argumentDescriptors->size; i++) {
+				// todo
+			}
+			
+			pd4j_thread_reference *methodInstance = top->data.referenceValue;
+			
+			if (methodInstance->kind == pd4j_REF_NULL) {
+				pd4j_thread_throw_class_with_message(thread, "java/lang/NullPointerException", "Cannot access method because instance is null");
+				return false;
+			}
+			
+			// todo
+			
 			return false;
 		}
 		default: {

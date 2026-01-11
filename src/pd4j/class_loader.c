@@ -17,7 +17,7 @@
 
 #define JAVA_CLASS_FILE_FIRST_COMPAT 45
 #define JAVA_CLASS_FILE_FIRST_NORMAL 56
-#define JAVA_CLASS_FILE_LAST_NORMAL 68
+#define JAVA_CLASS_FILE_LAST_NORMAL 69
 
 static const int endianCheck = 1;
 
@@ -500,6 +500,8 @@ static bool pd4j_class_loader_read_fields(pd4j_class_loader *loader, pd4j_class 
 			return false;
 		}
 		
+		field->descriptorIndex = idx;
+		
 		if (!pd4j_class_constant_utf8(class, idx, &field->descriptor)) {
 			strncpy(loader->err, "Malformed class file: Field descriptor is not a UTF-8 constant", 511);
 			loader->hasErr = true;
@@ -654,6 +656,8 @@ static bool pd4j_class_loader_read_methods(pd4j_class_loader *loader, pd4j_class
 			pd4j_class_destroy_methods(class, i);
 			return false;
 		}
+		
+		method->descriptorIndex = idx;
 		
 		if (!pd4j_class_constant_utf8(class, idx, &method->descriptor)) {
 			strncpy(loader->err, "Malformed class file: Method descriptor is not a UTF-8 constant", 511);

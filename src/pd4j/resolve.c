@@ -20,7 +20,9 @@ static void pd4j_resolve_add_constant(pd4j_class_constant *constant, pd4j_thread
 	resolved->data.class.constant = constant;
 	resolved->data.class.thRef = thRef;
 	
-	pd4j_class_add_resolved_reference(resolvingClass, resolved);
+	if (!pd4j_class_add_resolved_reference(resolvingClass, resolved)) {
+		pd4j_free(resolved, sizeof(pd4j_class_resolved_reference));
+	}
 }
 
 bool pd4j_resolve_class_reference(pd4j_thread_stack_entry **outRef, pd4j_thread *thread, pd4j_class_constant *classConstant, pd4j_class_reference *resolvingClass) {
@@ -152,11 +154,14 @@ bool pd4j_resolve_field_reference(pd4j_thread_stack_entry **outRef, pd4j_thread 
 	classRuntimeRef = classRuntimeEntry->data.referenceValue;
 	
 	pd4j_class_reference *targetClass = classRuntimeRef->data.class.loaded;
+	
+	uint16_t targetIndex = 0;
 	pd4j_class_property *foundField = NULL;
 	
 	for (uint16_t i = 0; i < targetClass->data.class->numFields; i++) {
 		if (strcmp((const char *)fieldName, (const char *)(targetClass->data.class->fields[i].name)) == 0) {
 			foundField = &targetClass->data.class->fields[i];
+			targetIndex = i;
 			break;
 		}
 	}
@@ -175,6 +180,7 @@ bool pd4j_resolve_field_reference(pd4j_thread_stack_entry **outRef, pd4j_thread 
 			for (uint16_t i = 0; i < targetSuperInterface->data.class->numFields; i++) {
 				if (strcmp((const char *)fieldName, (const char *)(targetSuperInterface->data.class->fields[i].name)) == 0) {
 					foundField = &targetSuperInterface->data.class->fields[i];
+					targetIndex = i;
 					break;
 				}
 			}
@@ -192,6 +198,7 @@ bool pd4j_resolve_field_reference(pd4j_thread_stack_entry **outRef, pd4j_thread 
 			for (uint16_t i = 0; i < targetClass->data.class->numFields; i++) {
 				if (strcmp((const char *)fieldName, (const char *)(targetClass->data.class->fields[i].name)) == 0) {
 					foundField = &targetClass->data.class->fields[i];
+					targetIndex = i;
 					break;
 				}
 			}
@@ -251,6 +258,7 @@ bool pd4j_resolve_field_reference(pd4j_thread_stack_entry **outRef, pd4j_thread 
 	thRef->data.field.name = fieldName;
 	thRef->data.field.descriptor = pd4j_class_get_resolved_class_reference(resolvingClass, thread, fieldType);
 	thRef->data.field.class = classRuntimeRef;
+	thRef->data.field.vmindex = targetIndex;
 	thRef->monitor.owner = NULL;
 	thRef->monitor.entryCount = 0;
 	thRef->resolved = true;
@@ -325,6 +333,8 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 	classRuntimeRef = classRuntimeEntry->data.referenceValue;
 	
 	pd4j_class_reference *targetClass = classRuntimeRef->data.class.loaded;
+	
+	uint16_t targetIndex = 0;
 	pd4j_class_property *foundMethod = NULL;
 	
 	if ((targetClass->data.class->accessFlags & pd4j_CLASS_ACC_INTERFACE) != 0) {
@@ -339,6 +349,7 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 			if (strcmp((const char *)methodName, (const char *)(targetClass->data.class->methods[i].name)) == 0 && strncmp((const char *)(targetClass->data.class->methods[i].descriptor), "(Ljava/lang/Object;)", 20) == 0 && ((targetClass->data.class->methods[i].accessFlags.method & (pd4j_METHOD_ACC_VARARGS | pd4j_METHOD_ACC_NATIVE)) == (pd4j_METHOD_ACC_VARARGS | pd4j_METHOD_ACC_NATIVE))) {
 				if (foundMethod == NULL) {
 					foundMethod = &targetClass->data.class->methods[i];
+					targetIndex = i;
 				}
 				else {
 					foundMethod = NULL;
@@ -363,6 +374,7 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 		for (uint16_t i = 0; i < targetClass->data.class->numMethods; i++) {
 			if (strcmp((const char *)methodName, (const char *)(targetClass->data.class->methods[i].name)) == 0 && strcmp((const char *)methodDescriptor, (const char *)(targetClass->data.class->methods[i].descriptor)) == 0) {
 				foundMethod = &targetClass->data.class->methods[i];
+				targetIndex = i;
 				break;
 			}
 		}
@@ -385,6 +397,8 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 		
 		while (interfaceStack->size > 0) {
 			pd4j_class_reference *targetSuperInterface = pd4j_list_pop(interfaceStack);
+			
+			uint16_t targetIndex2 = 0;
 			pd4j_class_property *foundMethod2 = NULL;
 			
 			for (uint16_t i = 0; i < targetSuperInterface->data.class->numSuperInterfaces; i++) {
@@ -395,10 +409,12 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 				if (strcmp((const char *)methodName, (const char *)(targetSuperInterface->data.class->methods[i].name)) == 0 && strcmp((const char *)methodDescriptor, (const char *)(targetSuperInterface->data.class->methods[i].descriptor)) == 0 && (targetSuperInterface->data.class->methods[i].accessFlags.method & (pd4j_METHOD_ACC_PRIVATE | pd4j_METHOD_ACC_STATIC)) == 0) {
 					if (foundMethod2 == NULL) {
 						foundMethod2 = &targetSuperInterface->data.class->methods[i];
+						targetIndex2 = i;
 					}
 					
 					if (foundMethod == NULL || ((foundMethod->accessFlags.method & pd4j_METHOD_ACC_ABSTRACT) != 0 && (targetSuperInterface->data.class->methods[i].accessFlags.method & pd4j_METHOD_ACC_ABSTRACT) == 0)) {
 						foundMethod = &targetSuperInterface->data.class->methods[i];
+						targetIndex = i;
 					}
 					else {
 						foundMethod = NULL;
@@ -412,6 +428,7 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 			}
 			else if (foundMethod2 != NULL) {
 				foundMethod = foundMethod2;
+				targetIndex = targetIndex2;
 				break;
 			}
 		}
@@ -468,6 +485,7 @@ bool pd4j_resolve_class_method_reference(pd4j_thread_stack_entry **outRef, pd4j_
 	thRef->data.method.name = methodName;
 	thRef->data.method.descriptor = methodDescriptor;
 	thRef->data.method.class = classRuntimeRef;
+	thRef->data.method.vmindex = targetIndex;
 	thRef->monitor.owner = NULL;
 	thRef->monitor.entryCount = 0;
 	
@@ -541,6 +559,8 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 	classRuntimeRef = classRuntimeEntry->data.referenceValue;
 	
 	pd4j_class_reference *targetClass = classRuntimeRef->data.class.loaded;
+	
+	uint16_t targetIndex = 0;
 	pd4j_class_property *foundMethod = NULL;
 	
 	if ((targetClass->data.class->accessFlags & pd4j_CLASS_ACC_INTERFACE) == 0) {
@@ -554,6 +574,7 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 		for (uint16_t i = 0; i < targetClass->data.class->numMethods; i++) {
 			if (strcmp((const char *)methodName, (const char *)(targetClass->data.class->methods[i].name)) == 0 && strcmp((const char *)methodDescriptor, (const char *)(targetClass->data.class->methods[i].descriptor)) == 0 && (targetClass->data.class->methods[i].accessFlags.method & (pd4j_METHOD_ACC_PUBLIC | pd4j_METHOD_ACC_STATIC)) == pd4j_METHOD_ACC_PUBLIC) {
 				foundMethod = &targetClass->data.class->methods[i];
+				targetIndex = i;
 				break;
 			}
 		}
@@ -576,6 +597,8 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 		
 		while (interfaceStack->size > 0) {
 			pd4j_class_reference *targetSuperInterface = pd4j_list_pop(interfaceStack);
+			
+			uint16_t targetIndex2 = 0;
 			pd4j_class_property *foundMethod2 = NULL;
 			
 			for (uint16_t i = 0; i < targetSuperInterface->data.class->numSuperInterfaces; i++) {
@@ -586,10 +609,12 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 				if (strcmp((const char *)methodName, (const char *)(targetSuperInterface->data.class->methods[i].name)) == 0 && strcmp((const char *)methodDescriptor, (const char *)(targetSuperInterface->data.class->methods[i].descriptor)) == 0 && (targetSuperInterface->data.class->methods[i].accessFlags.method & (pd4j_METHOD_ACC_PRIVATE | pd4j_METHOD_ACC_STATIC)) == 0) {
 					if (foundMethod2 == NULL) {
 						foundMethod2 = &targetSuperInterface->data.class->methods[i];
+						targetIndex2 = i;
 					}
 					
 					if (foundMethod == NULL || ((foundMethod->accessFlags.method & pd4j_METHOD_ACC_ABSTRACT) != 0 && (targetSuperInterface->data.class->methods[i].accessFlags.method & pd4j_METHOD_ACC_ABSTRACT) == 0)) {
 						foundMethod = &targetSuperInterface->data.class->methods[i];
+						targetIndex = i;
 					}
 					else {
 						foundMethod = NULL;
@@ -603,6 +628,7 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 			}
 			else if (foundMethod2 != NULL) {
 				foundMethod = foundMethod2;
+				targetIndex = targetIndex2;
 				break;
 			}
 		}
@@ -659,6 +685,7 @@ bool pd4j_resolve_interface_method_reference(pd4j_thread_stack_entry **outRef, p
 	thRef->data.method.name = methodName;
 	thRef->data.method.descriptor = methodDescriptor;
 	thRef->data.method.class = classRuntimeRef;
+	thRef->data.method.vmindex = targetIndex;
 	thRef->monitor.owner = NULL;
 	thRef->monitor.entryCount = 0;
 	
@@ -704,6 +731,22 @@ bool pd4j_resolve_method_type_reference(pd4j_thread_stack_entry **outRef, pd4j_t
 	findMethodHandleTypeMethod.data.method.name = (uint8_t *)"findMethodHandleType";
 	findMethodHandleTypeMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;";
 	findMethodHandleTypeMethod.data.method.class = methodHandleNativesClass;
+	
+	findMethodHandleTypeMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "findMethodHandleType") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;") == 0) {
+			findMethodHandleTypeMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (findMethodHandleTypeMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	findMethodHandleTypeMethod.monitor.owner = NULL;
 	findMethodHandleTypeMethod.monitor.entryCount = 0;
 	
@@ -1168,6 +1211,22 @@ bool pd4j_resolve_method_handle_reference(pd4j_thread_stack_entry **outRef, pd4j
 	findMethodHandleTypeMethod.data.method.name = (uint8_t *)"findMethodHandleType";
 	findMethodHandleTypeMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;";
 	findMethodHandleTypeMethod.data.method.class = methodHandleNativesClass;
+	
+	findMethodHandleTypeMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "findMethodHandleType") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;") == 0) {
+			findMethodHandleTypeMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (findMethodHandleTypeMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	findMethodHandleTypeMethod.monitor.owner = NULL;
 	findMethodHandleTypeMethod.monitor.entryCount = 0;
 	
@@ -1233,6 +1292,23 @@ bool pd4j_resolve_method_handle_reference(pd4j_thread_stack_entry **outRef, pd4j
 	linkMethodHandleConstantMethod.data.method.name = (uint8_t *)"linkMethodHandleConstant";
 	linkMethodHandleConstantMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;ILjava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;";
 	linkMethodHandleConstantMethod.data.method.class = methodHandleNativesClass;
+	
+	linkMethodHandleConstantMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "linkMethodHandleConstant") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;ILjava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;") == 0) {
+			linkMethodHandleConstantMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (linkMethodHandleConstantMethod.data.method.vmindex < 0) {
+		pd4j_list_destroy(paramRefs);
+		return false;
+	}
+	
 	linkMethodHandleConstantMethod.monitor.owner = NULL;
 	linkMethodHandleConstantMethod.monitor.entryCount = 0;
 	
@@ -1397,6 +1473,22 @@ static bool pd4j_resolve_dynamic_reference_impl(pd4j_thread_stack_entry **outRef
 	linkDynamicConstantMethod.data.method.name = (uint8_t *)"linkDynamicConstant";
 	linkDynamicConstantMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
 	linkDynamicConstantMethod.data.method.class = methodHandleNativesClass;
+	
+	linkDynamicConstantMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "linkDynamicConstant") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;") == 0) {
+			linkDynamicConstantMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (linkDynamicConstantMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	linkDynamicConstantMethod.monitor.owner = NULL;
 	linkDynamicConstantMethod.monitor.entryCount = 0;
 	
@@ -1412,6 +1504,22 @@ static bool pd4j_resolve_dynamic_reference_impl(pd4j_thread_stack_entry **outRef
 	identityMethod.data.method.name = (uint8_t *)"identity";
 	identityMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;";
 	identityMethod.data.method.class = methodHandlesClass;
+	
+	identityMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandlesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandlesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "identity") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;") == 0) {
+			identityMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (identityMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	identityMethod.monitor.owner = NULL;
 	identityMethod.monitor.entryCount = 0;
 	
@@ -1427,6 +1535,22 @@ static bool pd4j_resolve_dynamic_reference_impl(pd4j_thread_stack_entry **outRef
 	lookupMethod.data.method.name = (uint8_t *)"lookup";
 	lookupMethod.data.method.descriptor = (uint8_t *)"()Ljava/lang/invoke/MethodHandles$Lookup;";
 	lookupMethod.data.method.class = methodHandlesClass;
+	
+	lookupMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandlesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandlesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "lookup") == 0 && strcmp((char *)(method->descriptor), "()Ljava/lang/invoke/MethodHandles$Lookup;") == 0) {
+			lookupMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (lookupMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	lookupMethod.monitor.owner = NULL;
 	lookupMethod.monitor.entryCount = 0;
 	
@@ -1515,6 +1639,22 @@ static bool pd4j_resolve_dynamic_reference_impl(pd4j_thread_stack_entry **outRef
 				invokeMethod.data.method.name = (uint8_t *)"invoke";
 				invokeMethod.data.method.descriptor = numericInvokeDescriptor;
 				invokeMethod.data.method.class = methodHandleClass;
+				
+				invokeMethod.data.method.vmindex = -1;
+				
+				for (uint32_t i = 0; i < methodHandleClass->data.class.loaded->data.class->numMethods; i++) {
+					pd4j_class_property *method = &methodHandleClass->data.class.loaded->data.class->methods[i];
+					
+					if (strcmp((char *)(method->name), "invoke") == 0 && strcmp((char *)(method->descriptor), "([Ljava/lang/Object;)Ljava/lang/Object;") == 0) {
+						invokeMethod.data.method.vmindex = i;
+						break;
+					}
+				}
+				
+				if (invokeMethod.data.method.vmindex < 0) {
+					return false;
+				}
+				
 				invokeMethod.monitor.owner = NULL;
 				invokeMethod.monitor.entryCount = 0;
 				
@@ -1756,6 +1896,22 @@ static bool pd4j_resolve_dynamic_reference_impl(pd4j_thread_stack_entry **outRef
 		conversionMethod.data.method.name = (uint8_t *)"invoke";
 		conversionMethod.data.method.descriptor = conversionMethodDescriptor;
 		conversionMethod.data.method.class = methodHandleClass;
+		
+		conversionMethod.data.method.vmindex = -1;
+		
+		for (uint32_t i = 0; i < methodHandleClass->data.class.loaded->data.class->numMethods; i++) {
+			pd4j_class_property *method = &methodHandleClass->data.class.loaded->data.class->methods[i];
+			
+			if (strcmp((char *)(method->name), "invoke") == 0 && strcmp((char *)(method->descriptor), "([Ljava/lang/Object;)Ljava/lang/Object;") == 0) {
+				conversionMethod.data.method.vmindex = i;
+				break;
+			}
+		}
+		
+		if (conversionMethod.data.method.vmindex < 0) {
+			return false;
+		}
+		
 		conversionMethod.monitor.owner = NULL;
 		conversionMethod.monitor.entryCount = 0;
 		
@@ -1865,6 +2021,22 @@ bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4
 	findMethodHandleTypeMethod.data.method.name = (uint8_t *)"findMethodHandleType";
 	findMethodHandleTypeMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;";
 	findMethodHandleTypeMethod.data.method.class = methodHandleNativesClass;
+	
+	findMethodHandleTypeMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "findMethodHandleType") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;") == 0) {
+			findMethodHandleTypeMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (findMethodHandleTypeMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	findMethodHandleTypeMethod.monitor.owner = NULL;
 	findMethodHandleTypeMethod.monitor.entryCount = 0;
 	
@@ -1877,6 +2049,22 @@ bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4
 	linkMethodHandleConstantMethod.data.method.name = (uint8_t *)"linkMethodHandleConstant";
 	linkMethodHandleConstantMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;ILjava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;";
 	linkMethodHandleConstantMethod.data.method.class = methodHandleNativesClass;
+	
+	linkMethodHandleConstantMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "linkMethodHandleConstant") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;ILjava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;") == 0) {
+			linkMethodHandleConstantMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (linkMethodHandleConstantMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	linkMethodHandleConstantMethod.monitor.owner = NULL;
 	linkMethodHandleConstantMethod.monitor.entryCount = 0;
 	
@@ -1889,6 +2077,22 @@ bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4
 	linkCallSiteMethod.data.method.name = (uint8_t *)"linkCallSite";
 	linkCallSiteMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/invoke/MemberName;";
 	linkCallSiteMethod.data.method.class = methodHandleNativesClass;
+	
+	linkCallSiteMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandleNativesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandleNativesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "linkCallSite") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/invoke/MemberName;") == 0) {
+			linkCallSiteMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (linkCallSiteMethod.data.method.vmindex < 0) {
+		return false;
+	}
+	
 	linkCallSiteMethod.monitor.owner = NULL;
 	linkCallSiteMethod.monitor.entryCount = 0;
 	
@@ -1959,6 +2163,23 @@ bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4
 	identityMethod.data.method.name = (uint8_t *)"identity";
 	identityMethod.data.method.descriptor = (uint8_t *)"(Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;";
 	identityMethod.data.method.class = methodHandlesClass;
+	
+	identityMethod.data.method.vmindex = -1;
+	
+	for (uint32_t i = 0; i < methodHandlesClass->data.class.loaded->data.class->numMethods; i++) {
+		pd4j_class_property *method = &methodHandlesClass->data.class.loaded->data.class->methods[i];
+		
+		if (strcmp((char *)(method->name), "identity") == 0 && strcmp((char *)(method->descriptor), "(Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;") == 0) {
+			identityMethod.data.method.vmindex = i;
+			break;
+		}
+	}
+	
+	if (identityMethod.data.method.vmindex < 0) {
+		pd4j_free(methodTypeInstance, sizeof(pd4j_thread_stack_entry));
+		return false;
+	}
+	
 	identityMethod.monitor.owner = NULL;
 	identityMethod.monitor.entryCount = 0;
 	
@@ -2032,6 +2253,22 @@ bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4
 				invokeMethod.data.method.name = (uint8_t *)"invoke";
 				invokeMethod.data.method.descriptor = numericInvokeDescriptor;
 				invokeMethod.data.method.class = methodHandleClass;
+				
+				invokeMethod.data.method.vmindex = -1;
+				
+				for (uint32_t i = 0; i < methodHandleClass->data.class.loaded->data.class->numMethods; i++) {
+					pd4j_class_property *method = &methodHandleClass->data.class.loaded->data.class->methods[i];
+		
+					if (strcmp((char *)(method->name), "invoke") == 0 && strcmp((char *)(method->descriptor), "([Ljava/lang/Object;)Ljava/lang/Object;") == 0) {
+						invokeMethod.data.method.vmindex = i;
+						break;
+					}
+				}
+				
+				if (invokeMethod.data.method.vmindex < 0) {
+					return false;
+				}
+				
 				invokeMethod.monitor.owner = NULL;
 				invokeMethod.monitor.entryCount = 0;
 				

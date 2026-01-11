@@ -195,6 +195,7 @@ typedef struct {
 	
 	uint8_t *name;
 	uint8_t *descriptor;
+	uint16_t descriptorIndex;
 	
 	uint16_t numAttributes;
 	pd4j_class_attribute *attributes;
@@ -305,7 +306,7 @@ bool pd4j_class_can_access_class(pd4j_class_reference *target, pd4j_class_refere
 bool pd4j_class_can_access_class_reflective(pd4j_class_reference *target, pd4j_class_reference *classRef);
 bool pd4j_class_can_access_property(pd4j_class_property *target, pd4j_class_reference *targetClass, pd4j_class_reference *classRef, pd4j_thread *thread);
 
-void pd4j_class_add_resolved_reference(pd4j_class_reference *ref, pd4j_class_resolved_reference *resolvedReference);
+bool pd4j_class_add_resolved_reference(pd4j_class_reference *ref, pd4j_class_resolved_reference *resolvedReference);
 pd4j_thread_stack_entry *pd4j_class_get_resolved_constant_reference(pd4j_class_reference *ref, pd4j_class_constant *constant);
 pd4j_thread_reference *pd4j_class_get_resolved_class_reference(pd4j_class_reference *ref, pd4j_thread *thread, uint8_t *className);
 pd4j_thread_reference *pd4j_class_get_resolved_string_reference(pd4j_class_reference *ref, pd4j_thread *thread, uint8_t *stringValue);

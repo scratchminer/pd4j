@@ -14,4 +14,6 @@ bool pd4j_resolve_method_handle_reference(pd4j_thread_stack_entry **outRef, pd4j
 bool pd4j_resolve_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4j_thread *thread, pd4j_class_constant *dynamicConstant, pd4j_thread_reference *resolvingClassRef);
 bool pd4j_resolve_invoke_dynamic_reference(pd4j_thread_stack_entry **outRef, pd4j_thread *thread, pd4j_class_constant *invokeDynamicConstant, pd4j_thread_reference *resolvingClassRef);
 
+bool pd4j_resolve_member_name(pd4j_thread_stack_entry **outRef, pd4j_thread *thread, pd4j_thread_reference *memberName, pd4j_class_reference *resolvingClass);
+
 #endif
